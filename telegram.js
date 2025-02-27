@@ -8,7 +8,7 @@ const keepAlive = require("./keepalive"); // Para manter Repl online
 keepAlive();
 
 // Seu token do BotFather
-const token = "7225197725:AAE6wrk8NR-oP1FU-Ds5yvnF2hB0GizxeE8";
+const token = "7225197725:AAGpEywCAPpLuNSYLGZCECB0muYhS4GreFk";
 
 // Inicia o bot em modo polling
 const bot = new TelegramBot(token, { polling: true });
