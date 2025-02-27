@@ -1,25 +1,24 @@
 // bot.js
 const db = require("./db");
 
-// Armazena o fluxo de cadastro em memória
+// Estado do fluxo em memória (para cadastro interativo)
 const conversations = {};
 
 /**
- * Salva a planta finalizada no DB
+ * Adiciona uma planta à coleção "plants"
+ * O documento tem id igual ao chatId e o campo "items" é um array de plantas.
  */
 async function adicionarPlanta(chatId, planta) {
-  const key = `plants_${String(chatId)}`;
-  console.log("[DEBUG] adicionarPlanta => key:", key, "planta:", planta);
-
-  let plantas = await db.get(key);
-  if (!Array.isArray(plantas)) {
-    plantas = [];
+  const docRef = db.collection('plants').doc(String(chatId));
+  const doc = await docRef.get();
+  let items = [];
+  if (doc.exists) {
+    items = doc.data().items || [];
   }
-  plantas.push(planta);
-  await db.set(key, plantas);
-
-  console.log(`[DEBUG] Planta adicionada. Total agora: ${plantas.length}`);
-  return plantas;
+  items.push(planta);
+  await docRef.set({ items });
+  console.log(`[DEBUG] Planta adicionada para chat ${chatId}. Total: ${items.length}`);
+  return items;
 }
 
 /**
@@ -34,31 +33,28 @@ function calcularProximaRega(ultimaRegaISO, intervaloDias) {
 }
 
 /**
- * Limpa a conversa do usuário (em memória)
+ * Limpa a conversa (estado em memória)
  */
 function limparConversa(chatId) {
-  console.log(`[DEBUG] limpando conversa do chatId: ${chatId}`);
   delete conversations[chatId];
 }
 
 /**
- * Fluxo principal: processa mensagens de texto (ex.: "cadastrar pimenteira")
+ * Fluxo principal: processa mensagens de texto para cadastro
  */
 async function processarMensagem(chatId, texto, fotoUrl = null) {
   console.log("[DEBUG] processarMensagem => chatId:", chatId, "texto:", texto);
-
   const msg = texto.trim();
   const msgLower = msg.toLowerCase();
 
-  // Se terminar com "regada", atualiza a rega via texto
+  // Se a mensagem indicar "regada", atualiza a rega via texto
   if (msgLower.endsWith("regada") || msgLower.endsWith("regada!")) {
     return await atualizarRegaTexto(chatId, msg);
   }
 
-  // Verifica se há uma conversa em andamento
   let conv = conversations[chatId] || null;
 
-  // Se não há conversa e a mensagem começa com "cadastrar"
+  // Inicia o fluxo de cadastro
   if (!conv && msgLower.startsWith("cadastrar")) {
     const parts = msg.split(" ");
     if (parts.length < 2) {
@@ -77,10 +73,10 @@ async function processarMensagem(chatId, texto, fotoUrl = null) {
       }
     };
     conversations[chatId] = conv;
-    return `👋 Vamos cadastrar a planta *${defaultNome}*!\nEla terá algum apelido? (Se não, responda "não")`;
+    return `👋 Vamos cadastrar sua planta *${defaultNome}*!\nEla terá algum apelido? (Se não, responda "não")`;
   }
 
-  // Se já há conversa, processa o step
+  // Processa o fluxo interativo
   if (conv) {
     switch (conv.step) {
       case "ask_apelido": {
@@ -143,6 +139,7 @@ async function processarMensagem(chatId, texto, fotoUrl = null) {
           foto: conv.plantData.foto
         };
         await adicionarPlanta(chatId, planta);
+        await deleteConversation(chatId);
         limparConversa(chatId);
 
         const dias = calcularProximaRega(planta.ultimaRega, planta.intervalo);
@@ -157,13 +154,12 @@ async function processarMensagem(chatId, texto, fotoUrl = null) {
         return msgFinal;
       }
       default: {
+        await deleteConversation(chatId);
         limparConversa(chatId);
         return "⚠️ Erro na conversa. Tente novamente.";
       }
     }
   }
-
-  // Se não for cadastro nem "regada", retornamos null para não spammar
   return null;
 }
 
@@ -171,44 +167,40 @@ async function processarMensagem(chatId, texto, fotoUrl = null) {
  * Atualiza a última rega se o usuário digitar "[apelido] regada"
  */
 async function atualizarRegaTexto(chatId, mensagem) {
-  const key = `plants_${String(chatId)}`;
+  const docRef = db.collection('plants').doc(String(chatId));
+  const doc = await docRef.get();
+  let plantas = doc.exists ? doc.data().items || [] : [];
   const apelido = mensagem.replace(/regada!?/i, "").trim().toLowerCase();
-
-  let plantas = await db.get(key);
-  if (!Array.isArray(plantas) || plantas.length === 0) {
-    return "⚠️ Nenhuma planta cadastrada ainda!";
-  }
-
   const index = plantas.findIndex(p => p.apelido.toLowerCase() === apelido);
   if (index === -1) {
     return `❌ Não encontrei planta com apelido "${apelido}".`;
   }
   plantas[index].ultimaRega = new Date().toISOString();
-  await db.set(key, plantas);
-
+  await docRef.set({ items: plantas });
   const dias = calcularProximaRega(plantas[index].ultimaRega, plantas[index].intervalo);
-  return `✅ Planta *${plantas[index].apelido}* atualizada! Regada agora.\n` +
-         `🔄 Próxima rega em: ${dias} dia(s)`;
+  return `✅ Planta *${plantas[index].apelido}* atualizada! Regada agora.\n🔄 Próxima rega em: ${dias} dia(s)`;
 }
 
 /**
- * Atualiza a última rega pelo índice (usado no menu "Ver Planta" → "Regar")
+ * Exclui o documento de conversa do Firestore (se você quiser persistir o estado, adapte conforme necessário)
  */
-async function atualizarRegaPorIndice(chatId, index) {
-  const key = `plants_${String(chatId)}`;
-  let plantas = await db.get(key);
-  if (!Array.isArray(plantas) || !plantas[index]) {
-    return "Planta não encontrada ou inexistente!";
-  }
-  plantas[index].ultimaRega = new Date().toISOString();
-  await db.set(key, plantas);
-
-  const dias = calcularProximaRega(plantas[index].ultimaRega, plantas[index].intervalo);
-  return `✅ Planta *${plantas[index].apelido}* regada agora.\n` +
-         `🔄 Próxima rega em: ${dias} dia(s)`;
+async function deleteConversation(chatId) {
+  const docRef = db.collection('conversations').doc(String(chatId));
+  await docRef.delete();
 }
 
 module.exports = {
   processarMensagem,
-  atualizarRegaPorIndice
+  atualizarRegaPorIndice: async function(chatId, index) {
+    const docRef = db.collection('plants').doc(String(chatId));
+    const doc = await docRef.get();
+    let plantas = doc.exists ? doc.data().items || [] : [];
+    if (!Array.isArray(plantas) || !plantas[index]) {
+      return "Planta não encontrada ou inexistente!";
+    }
+    plantas[index].ultimaRega = new Date().toISOString();
+    await docRef.set({ items: plantas });
+    const dias = calcularProximaRega(plantas[index].ultimaRega, plantas[index].intervalo);
+    return `✅ Planta *${plantas[index].apelido}* regada agora.\n🔄 Próxima rega em: ${dias} dia(s)`;
+  }
 };
