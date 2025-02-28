@@ -5,8 +5,8 @@ const db = require("./db");
 const conversations = {};
 
 /**
- * Adiciona uma planta à coleção "plants"
- * O documento tem id igual ao chatId e o campo "items" é um array de plantas.
+ * Adiciona uma planta à coleção "plants".
+ * Cada documento tem id igual ao chatId e o campo "items" é um array de plantas.
  */
 async function adicionarPlanta(chatId, planta) {
   const docRef = db.collection('plants').doc(String(chatId));
@@ -22,7 +22,7 @@ async function adicionarPlanta(chatId, planta) {
 }
 
 /**
- * Calcula quantos dias faltam para a próxima rega
+ * Calcula quantos dias faltam para a próxima rega.
  */
 function calcularProximaRega(ultimaRegaISO, intervaloDias) {
   const ultimaRega = new Date(ultimaRegaISO);
@@ -54,7 +54,7 @@ async function processarMensagem(chatId, texto, fotoUrl = null) {
 
   let conv = conversations[chatId] || null;
 
-  // Inicia o fluxo de cadastro
+  // Inicia o fluxo se a mensagem começar com "cadastrar"
   if (!conv && msgLower.startsWith("cadastrar")) {
     const parts = msg.split(" ");
     if (parts.length < 2) {
@@ -73,10 +73,10 @@ async function processarMensagem(chatId, texto, fotoUrl = null) {
       }
     };
     conversations[chatId] = conv;
-    return `👋 Vamos cadastrar sua planta *${defaultNome}*!\nEla terá algum apelido? (Se não, responda "não")`;
+    return `👋 Vamos cadastrar sua planta *${defaultNome}*!\nEla terá algum apelido? (Responda "não" para usar o nome padrão)`;
   }
 
-  // Processa o fluxo interativo
+  // Processa os passos do fluxo interativo
   if (conv) {
     switch (conv.step) {
       case "ask_apelido": {
@@ -139,7 +139,6 @@ async function processarMensagem(chatId, texto, fotoUrl = null) {
           foto: conv.plantData.foto
         };
         await adicionarPlanta(chatId, planta);
-        await deleteConversation(chatId);
         limparConversa(chatId);
 
         const dias = calcularProximaRega(planta.ultimaRega, planta.intervalo);
@@ -154,7 +153,6 @@ async function processarMensagem(chatId, texto, fotoUrl = null) {
         return msgFinal;
       }
       default: {
-        await deleteConversation(chatId);
         limparConversa(chatId);
         return "⚠️ Erro na conversa. Tente novamente.";
       }
@@ -182,7 +180,7 @@ async function atualizarRegaTexto(chatId, mensagem) {
 }
 
 /**
- * Exclui o documento de conversa do Firestore (se você quiser persistir o estado, adapte conforme necessário)
+ * Exclui o documento de conversa na coleção "conversations"
  */
 async function deleteConversation(chatId) {
   const docRef = db.collection('conversations').doc(String(chatId));
