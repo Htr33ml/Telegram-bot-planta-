@@ -3,15 +3,23 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const TelegramBot = require("node-telegram-bot-api");
 const { processarMensagem, atualizarRegaPorIndice } = require("./bot");
+const keepAlive = require("./keepalive");
 
-// Obtenha as variáveis de ambiente ou use os valores padrão
+// Mantenha o keepAlive para que a raiz responda (opcional)
+keepAlive();
+
+// Obtém as variáveis de ambiente ou usa valores padrão
 const TOKEN = process.env.TELEGRAM_TOKEN || "7225197725:AAGpEywCAPpLuNSYLGZCECB0muYhS4GreFk";
 const WEBHOOK_URL = process.env.WEBHOOK_URL || "https://telegram-bot-planta.onrender.com";
 
-// Cria o bot em modo webhook (não usa polling)
+// Codifica o token para uso na rota (importante para que os dois-pontos não sejam interpretados como parâmetro)
+const encodedToken = encodeURIComponent(TOKEN);
+const webhookRoute = `/bot${encodedToken}`;
+
+// Cria o bot em modo webhook (sem polling)
 const bot = new TelegramBot(TOKEN, { polling: false });
 
-// Cria um único servidor Express
+// Cria o servidor Express
 const app = express();
 app.use(bodyParser.json());
 
@@ -20,8 +28,8 @@ app.get("/", (req, res) => {
   res.send("Bot is running! All good here.");
 });
 
-// Rota que o Telegram usa para enviar atualizações (via POST)
-app.post(`/bot${TOKEN}`, (req, res) => {
+// Rota que o Telegram usará para enviar atualizações
+app.post(webhookRoute, (req, res) => {
   console.log("[DEBUG] Update recebido:", req.body);
   bot.processUpdate(req.body);
   res.sendStatus(200);
@@ -31,7 +39,8 @@ app.post(`/bot${TOKEN}`, (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, async () => {
   console.log(`Servidor rodando na porta ${PORT}...`);
-  const webhookUrl = `${WEBHOOK_URL}/bot${TOKEN}`;
+  // Configura o webhook usando a mesma rota codificada
+  const webhookUrl = `${WEBHOOK_URL}${webhookRoute}`;
   try {
     await bot.setWebHook(webhookUrl);
     console.log("Webhook configurado com sucesso em:", webhookUrl);
@@ -261,7 +270,7 @@ async function verificarLembretes() {
   });
 }
 
-// Verifica a cada 60 segundos; se for exatamente 06:00, executa os lembretes
+// Checa a cada 60 segundos; se for exatamente 06:00, executa os lembretes
 setInterval(async () => {
   const agora = new Date();
   if (agora.getHours() === 6 && agora.getMinutes() === 0) {
