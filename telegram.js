@@ -1,16 +1,43 @@
 // telegram.js
+const express = require("express");
+const bodyParser = require("body-parser");
 const TelegramBot = require("node-telegram-bot-api");
 const db = require("./db");
 const { processarMensagem, atualizarRegaPorIndice } = require("./bot");
 const keepAlive = require("./keepalive");
 
+// Se desejar, mantenha o keepalive para garantir que o servidor responda à raiz
 keepAlive();
 
-const token = "7225197725:AAGpEywCAPpLuNSYLGZCECB0muYhS4GreFk";
-const bot = new TelegramBot(token, { polling: true });
+// Obtenha as variáveis de ambiente (ou substitua manualmente)
+const TOKEN = process.env.TELEGRAM_TOKEN || "7225197725:AAGpEywCAPpLuNSYLGZCECB0muYhS4GreFk";
+const WEBHOOK_URL = process.env.WEBHOOK_URL || "https://telegram-bot-planta.onrender.com";
+
+// Cria o bot em modo webhook (sem polling)
+const bot = new TelegramBot(TOKEN, { polling: false });
+
+// Cria o servidor Express
+const app = express();
+app.use(bodyParser.json());
+
+// Rota que o Telegram usará para enviar atualizações
+app.post(`/bot${TOKEN}`, (req, res) => {
+  bot.processUpdate(req.body);
+  res.sendStatus(200);
+});
+
+// Configura o evento "message"
+bot.on("message", async (msg) => {
+  const chatId = msg.chat.id;
+  const text = msg.text || "";
+  const resposta = await processarMensagem(chatId, text);
+  if (resposta) {
+    bot.sendMessage(chatId, resposta, { parse_mode: "Markdown" });
+  }
+});
 
 // ====================
-// MENU PRINCIPAL
+// MENU E CALLBACK QUERIES
 // ====================
 bot.onText(/\/start/i, async (msg) => {
   const chatId = msg.chat.id;
@@ -40,15 +67,13 @@ async function mostrarMenuPrincipal(chatId) {
   });
 }
 
-// ====================
-// TRATAMENTO DOS BOTÕES
-// ====================
 bot.on("callback_query", async (callbackQuery) => {
   const chatId = callbackQuery.message.chat.id;
   const data = callbackQuery.data;
   console.log("[DEBUG] callback_query =>", { chatId, data });
 
-  await bot.answerCallbackQuery(callbackQuery.id); // Responde imediatamente
+  // Responde imediatamente para evitar timeout
+  await bot.answerCallbackQuery(callbackQuery.id);
 
   if (data === "listarPlantas") {
     return listarPlantas(chatId);
@@ -59,7 +84,7 @@ bot.on("callback_query", async (callbackQuery) => {
   } else if (data === "sobreBot") {
     return bot.sendMessage(chatId,
       "🤖 *Bot de Plantas*\n" +
-      "Cadastre suas plantas, veja detalhes, regue, delete e receba lembretes diários às 06:00!\n" +
+      "Cadastre suas plantas, veja detalhes, regue, delete e receba lembretes diários!\n" +
       "Feito com Node.js, Telegram Bot API e Firebase Firestore.\n",
       { parse_mode: "Markdown" }
     );
@@ -100,8 +125,6 @@ bot.on("callback_query", async (callbackQuery) => {
 // FUNÇÕES DE LISTAR / VER / DELETAR
 // ====================
 async function listarPlantas(chatId) {
-  const key = `plants_${String(chatId)}`;
-  console.log("[DEBUG] listarPlantas => chatId:", chatId, "key:", key);
   const docRef = db.collection('plants').doc(String(chatId));
   const doc = await docRef.get();
   let plantas = doc.exists ? doc.data().items || [] : [];
@@ -122,7 +145,6 @@ async function listarPlantas(chatId) {
 }
 
 async function verPlanta(chatId, index) {
-  const key = `plants_${String(chatId)}`;
   const docRef = db.collection('plants').doc(String(chatId));
   const doc = await docRef.get();
   let plantas = doc.exists ? doc.data().items || [] : [];
@@ -164,7 +186,6 @@ async function verPlanta(chatId, index) {
       console.log("[DEBUG] Erro ao enviar foto:", err.message);
     }
   }
-
   return bot.sendMessage(chatId, msg, {
     parse_mode: "Markdown",
     reply_markup: { inline_keyboard: inlineKeyboard }
@@ -172,7 +193,6 @@ async function verPlanta(chatId, index) {
 }
 
 async function confirmarDeletarPlanta(chatId, index) {
-  const key = `plants_${String(chatId)}`;
   const docRef = db.collection('plants').doc(String(chatId));
   const doc = await docRef.get();
   let plantas = doc.exists ? doc.data().items || [] : [];
@@ -194,7 +214,6 @@ async function confirmarDeletarPlanta(chatId, index) {
 }
 
 async function deletarPlanta(chatId, index) {
-  const key = `plants_${String(chatId)}`;
   const docRef = db.collection('plants').doc(String(chatId));
   const doc = await docRef.get();
   let plantas = doc.exists ? doc.data().items || [] : [];
@@ -207,19 +226,6 @@ async function deletarPlanta(chatId, index) {
   await bot.sendMessage(chatId, `🗑️ A planta *${p.apelido}* foi deletada!`, { parse_mode: "Markdown" });
   return listarPlantas(chatId);
 }
-
-// ====================
-// MENSAGENS DE TEXTO (fluxo antigo, se necessário)
-// ====================
-bot.on("message", async (msg) => {
-  const chatId = msg.chat.id;
-  const text = msg.text || "";
-  if (/^\/start/i.test(text) || /Menu/i.test(text)) return;
-  const resposta = await processarMensagem(String(chatId), text);
-  if (resposta) {
-    bot.sendMessage(chatId, resposta, { parse_mode: "Markdown" });
-  }
-});
 
 // ====================
 // LEMBRETES DIÁRIOS ÀS 06:00
@@ -249,12 +255,10 @@ async function verificarLembretes() {
 // Verifica a cada 60 segundos; se for 06:00, executa os lembretes
 setInterval(async () => {
   const agora = new Date();
-  const hora = agora.getHours();
-  const minuto = agora.getMinutes();
-  if (hora === 6 && minuto === 0) {
+  if (agora.getHours() === 6 && agora.getMinutes() === 0) {
     console.log("[DEBUG] Executando lembretes diários (06:00)...");
     await verificarLembretes();
   }
 }, 60000);
 
-console.log("Bot de Plantas no Telegram rodando com menu avançado, lembretes e keepalive...");
+console.log("Bot de Plantas no Telegram rodando com menu avançado, lembretes e webhook...");
