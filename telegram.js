@@ -2,14 +2,13 @@
 const express = require("express");
 const bodyParser = require("body-parser");
 const TelegramBot = require("node-telegram-bot-api");
-const db = require("./db");
 const { processarMensagem, atualizarRegaPorIndice } = require("./bot");
 const keepAlive = require("./keepalive");
 
-// Se desejar, mantenha o keepalive para garantir que o servidor responda à raiz
+// Se desejar, mantenha o keepAlive para garantir que a raiz responda
 keepAlive();
 
-// Obtenha as variáveis de ambiente (ou substitua manualmente)
+// Obtém as variáveis de ambiente (caso não estejam definidas, utiliza os valores padrão)
 const TOKEN = process.env.TELEGRAM_TOKEN || "7225197725:AAGpEywCAPpLuNSYLGZCECB0muYhS4GreFk";
 const WEBHOOK_URL = process.env.WEBHOOK_URL || "https://telegram-bot-planta.onrender.com";
 
@@ -20,13 +19,13 @@ const bot = new TelegramBot(TOKEN, { polling: false });
 const app = express();
 app.use(bodyParser.json());
 
-// Rota que o Telegram usará para enviar atualizações
+// Rota que o Telegram usará para enviar atualizações ao bot
 app.post(`/bot${TOKEN}`, (req, res) => {
   bot.processUpdate(req.body);
   res.sendStatus(200);
 });
 
-// Configura o evento "message"
+// Configuração do evento "message" para processar mensagens de texto
 bot.on("message", async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text || "";
@@ -37,7 +36,7 @@ bot.on("message", async (msg) => {
 });
 
 // ====================
-// MENU E CALLBACK QUERIES
+// COMANDOS / MENU (via /start e "Menu")
 // ====================
 bot.onText(/\/start/i, async (msg) => {
   const chatId = msg.chat.id;
@@ -67,6 +66,9 @@ async function mostrarMenuPrincipal(chatId) {
   });
 }
 
+// ====================
+// TRATAMENTO DE CALLBACK QUERIES
+// ====================
 bot.on("callback_query", async (callbackQuery) => {
   const chatId = callbackQuery.message.chat.id;
   const data = callbackQuery.data;
@@ -78,9 +80,7 @@ bot.on("callback_query", async (callbackQuery) => {
   if (data === "listarPlantas") {
     return listarPlantas(chatId);
   } else if (data === "cadastrarPlanta") {
-    return bot.sendMessage(chatId, "Para cadastrar, digite:\n`cadastrar [nome da planta]`", {
-      parse_mode: "Markdown"
-    });
+    return bot.sendMessage(chatId, "Para cadastrar, digite:\n`cadastrar [nome da planta]`", { parse_mode: "Markdown" });
   } else if (data === "sobreBot") {
     return bot.sendMessage(chatId,
       "🤖 *Bot de Plantas*\n" +
@@ -228,7 +228,7 @@ async function deletarPlanta(chatId, index) {
 }
 
 // ====================
-// LEMBRETES DIÁRIOS ÀS 06:00
+// LEMBRETES DIÁRIOS (às 06:00)
 // ====================
 async function verificarLembretes() {
   console.log("[DEBUG] Rodando verificarLembretes()...");
@@ -252,7 +252,7 @@ async function verificarLembretes() {
   });
 }
 
-// Verifica a cada 60 segundos; se for 06:00, executa os lembretes
+// Checa a cada 60 segundos; se for exatamente 06:00, executa os lembretes
 setInterval(async () => {
   const agora = new Date();
   if (agora.getHours() === 6 && agora.getMinutes() === 0) {
