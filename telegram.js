@@ -3,29 +3,44 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const TelegramBot = require("node-telegram-bot-api");
 const { processarMensagem, atualizarRegaPorIndice } = require("./bot");
-const keepAlive = require("./keepalive");
 
-// Se desejar, mantenha o keepAlive para garantir que a raiz responda
-keepAlive();
-
-// Obtém as variáveis de ambiente (caso não estejam definidas, utiliza os valores padrão)
+// Obtenha as variáveis de ambiente ou use os valores padrão
 const TOKEN = process.env.TELEGRAM_TOKEN || "7225197725:AAGpEywCAPpLuNSYLGZCECB0muYhS4GreFk";
 const WEBHOOK_URL = process.env.WEBHOOK_URL || "https://telegram-bot-planta.onrender.com";
 
-// Cria o bot em modo webhook (sem polling)
+// Cria o bot em modo webhook (não usa polling)
 const bot = new TelegramBot(TOKEN, { polling: false });
 
-// Cria o servidor Express
+// Cria um único servidor Express
 const app = express();
 app.use(bodyParser.json());
 
-// Rota que o Telegram usará para enviar atualizações ao bot
+// Rota para manter o serviço "acordado"
+app.get("/", (req, res) => {
+  res.send("Bot is running! All good here.");
+});
+
+// Rota que o Telegram usa para enviar atualizações (via POST)
 app.post(`/bot${TOKEN}`, (req, res) => {
+  console.log("[DEBUG] Update recebido:", req.body);
   bot.processUpdate(req.body);
   res.sendStatus(200);
 });
 
-// Configuração do evento "message" para processar mensagens de texto
+// Inicia o servidor na porta definida
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, async () => {
+  console.log(`Servidor rodando na porta ${PORT}...`);
+  const webhookUrl = `${WEBHOOK_URL}/bot${TOKEN}`;
+  try {
+    await bot.setWebHook(webhookUrl);
+    console.log("Webhook configurado com sucesso em:", webhookUrl);
+  } catch (err) {
+    console.error("Erro ao configurar webhook:", err);
+  }
+});
+
+// Evento "message" para processar mensagens de texto
 bot.on("message", async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text || "";
@@ -35,9 +50,7 @@ bot.on("message", async (msg) => {
   }
 });
 
-// ====================
-// COMANDOS / MENU (via /start e "Menu")
-// ====================
+// Comandos /start e "Menu" para exibir o menu principal
 bot.onText(/\/start/i, async (msg) => {
   const chatId = msg.chat.id;
   console.log("[DEBUG] /start no chatId:", chatId);
@@ -66,9 +79,7 @@ async function mostrarMenuPrincipal(chatId) {
   });
 }
 
-// ====================
-// TRATAMENTO DE CALLBACK QUERIES
-// ====================
+// Tratamento de callback queries
 bot.on("callback_query", async (callbackQuery) => {
   const chatId = callbackQuery.message.chat.id;
   const data = callbackQuery.data;
@@ -121,9 +132,7 @@ bot.on("callback_query", async (callbackQuery) => {
   }
 });
 
-// ====================
-// FUNÇÕES DE LISTAR / VER / DELETAR
-// ====================
+// Funções de listar, ver e deletar plantas
 async function listarPlantas(chatId) {
   const docRef = db.collection('plants').doc(String(chatId));
   const doc = await docRef.get();
@@ -252,7 +261,7 @@ async function verificarLembretes() {
   });
 }
 
-// Checa a cada 60 segundos; se for exatamente 06:00, executa os lembretes
+// Verifica a cada 60 segundos; se for exatamente 06:00, executa os lembretes
 setInterval(async () => {
   const agora = new Date();
   if (agora.getHours() === 6 && agora.getMinutes() === 0) {
