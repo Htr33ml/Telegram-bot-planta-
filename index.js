@@ -41,12 +41,21 @@ bot.command('menu', (ctx) => {
 // Listar Plantas
 bot.action('listar', async (ctx) => {
   try {
-    const snapshot = await db.collection('plantas').get();
-    const plantas = snapshot.docs.map(doc => `- ${doc.data().nome}`).join('\n');
-    ctx.reply(plantas || 'Nenhuma planta cadastrada ainda! 🌵', { parse_mode: 'Markdown' });
+    const snapshot = await admin.firestore().collection('plants').get();
+    if (snapshot.empty) {
+      ctx.reply('Nenhuma planta cadastrada ainda! 🌵');
+      return;
+    }
+
+    const plantas = snapshot.docs.map(doc => {
+      const data = doc.data();
+      return `- ${data.apeLido} (${data.nomeClientifico}) - Regar a cada ${data.intervalo} dias`;
+    }).join('\n');
+
+    ctx.reply(`🌿 *Suas Plantas:*\n${plantas}`, { parse_mode: 'Markdown' });
   } catch (err) {
     console.error('Erro ao listar plantas:', err);
-    ctx.reply('Erro ao acessar o banco de dados! 😢');
+    ctx.reply('Ocorreu um erro ao buscar suas plantas. 😢');
   }
 });
 
