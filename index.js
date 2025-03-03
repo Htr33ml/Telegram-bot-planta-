@@ -29,7 +29,7 @@ bot.command('menu', (ctx) => {
   });
 });
 
-// Listar Plantas (com tratamento para estrutura de dados)
+// Listar Plantas (ajustado para a estrutura do Firestore)
 bot.action('listar', async (ctx) => {
   try {
     const snapshot = await db.collection('plants').get();
@@ -41,25 +41,25 @@ bot.action('listar', async (ctx) => {
     // Log dos dados brutos para depuração
     console.log('Dados do Firestore:', snapshot.docs.map(doc => doc.data()));
 
-    const plantas = snapshot.docs.map(doc => {
+    const plantas = snapshot.docs.flatMap(doc => {
       const data = doc.data();
-      const items = data.items || [data]; // Acessa o campo "items" ou usa o documento direto
+      const items = data.items || []; // Acessa o campo "items"
       return items.map(item => {
         const apelido = item.apelido || 'Sem apelido';
         const nomeCientifico = item.nomeCientifico || 'Sem nome científico';
         const intervalo = item.intervalo || 'N/A';
         return `- ${apelido} (${nomeCientifico}) - Regar a cada ${intervalo} dias`;
-      }).join('\n');
+      });
     }).join('\n');
 
-    ctx.reply(`🌿 *Suas Plantas:*\n${plantas}`, { parse_mode: 'Markdown' });
+    ctx.reply(`🌿 *Suas Plantas:*\n${plantas || 'Nenhuma planta cadastrada ainda! 🌵'}`, { parse_mode: 'Markdown' });
   } catch (err) {
     console.error('Erro ao listar plantas:', err);
     ctx.reply('Ocorreu um erro ao buscar suas plantas. 😢');
   }
 });
 
-// Cadastrar Planta (com validação de intervalo)
+// Cadastrar Planta (ajustado para a estrutura do Firestore)
 bot.action('cadastrar', async (ctx) => {
   await ctx.answerCbQuery();
   ctx.reply('Digite o *apelido* da planta:', { parse_mode: 'Markdown' });
@@ -82,12 +82,17 @@ bot.action('cadastrar', async (ctx) => {
         }
 
         try {
-          await db.collection('plants').add({
-            apelido,
-            nomeCientifico,
-            intervalo,
-            ultimaRega: new Date().toISOString()
-          });
+          // Adiciona a nova planta ao array "items"
+          const plantasRef = db.collection('plants').doc('lista'); // Use um ID fixo ou ajuste conforme necessário
+          await plantasRef.set({
+            items: admin.firestore.FieldValue.arrayUnion({
+              apelido,
+              nomeCientifico,
+              intervalo,
+              ultimaRega: new Date().toISOString()
+            })
+          }, { merge: true });
+
           ctx.reply('✅ Planta cadastrada com sucesso!');
         } catch (err) {
           console.error('Erro ao cadastrar:', err);
