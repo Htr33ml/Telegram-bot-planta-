@@ -1,6 +1,8 @@
 const { Telegraf } = require('telegraf');
 const admin = require('firebase-admin');
 const express = require('express');
+const cron = require('node-cron');
+const axios = require('axios'); // Para integração com clima
 
 // ================= 🔥 FIREBASE =================
 const serviceAccount = JSON.parse(process.env.FIREBASE_CONFIG);
@@ -11,13 +13,81 @@ admin.initializeApp({
 
 const db = admin.firestore();
 
+// ================= 🌦️ OPENWEATHERMAP =================
+const OPENWEATHER_API_KEY = process.env.OPENWEATHER_API_KEY;
+
 // ================= 🤖 BOT =================
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 const app = express();
 app.use(express.json());
 
-// Variável para armazenar o estado do cadastro
+// Variáveis de estado
 let cadastroState = {};
+let edicaoState = {};
+
+// ================= FUNÇÕES AUXILIARES =================
+
+// Função para calcular a próxima rega com base no clima
+const calcularProximaRega = async (ultimaRega, intervalo, localizacao) => {
+  try {
+    // Obter previsão do tempo
+    const response = await axios.get(
+      `https://api.openweathermap.org/data/2.5/weather?q=${localizacao}&appid=${OPENWEATHER_API_KEY}`
+    );
+    const { rain } = response.data;
+
+    // Ajustar intervalo se chover nos próximos dias
+    const intervaloAjustado = rain ? intervalo - 1 : intervalo;
+
+    const dataUltimaRega = new Date(ultimaRega);
+    dataUltimaRega.setDate(dataUltimaRega.getDate() + intervaloAjustado);
+    return dataUltimaRega;
+
+  } catch (err) {
+    // Se falhar, usar intervalo padrão
+    const dataUltimaRega = new Date(ultimaRega);
+    dataUltimaRega.setDate(dataUltimaRega.getDate() + intervalo);
+    return dataUltimaRega;
+  }
+};
+
+// Função para enviar lembretes de rega
+const enviarLembretes = async () => {
+  const snapshot = await db.collection('plants').get();
+  snapshot.docs.forEach(async (doc) => {
+    const userData = doc.data();
+    const plantas = userData.items || [];
+    const localizacao = userData.localizacao || 'São Paulo'; // Default
+
+    plantas.forEach(async (planta) => {
+      const hoje = new Date();
+      const proximaRega = await calcularProximaRega(planta.ultimaRega, planta.intervalo, localizacao);
+
+      if (hoje >= proximaRega) {
+        await bot.telegram.sendMessage(
+          doc.id,
+          `🌧️ *Hora de regar a ${planta.apelido}!*\n` +
+          `_Previsão de chuva: ${proximaRega.getDate() === hoje.getDate() ? 'Sim' : 'Não'}_\n` +
+          'Clique em "Regar" abaixo:',
+          {
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: "✅ Regar Agora", callback_data: `regar_${planta.apelido}` }],
+                [{ text: "🔔 Lembrar mais tarde", callback_data: 'ignorar' }]
+              ]
+            }
+          }
+        );
+      }
+    });
+  });
+};
+
+// Agendar lembretes a cada hora
+cron.schedule('0 * * * *', enviarLembretes);
+
+// ================= COMANDOS PRINCIPAIS =================
 
 // Menu Principal
 bot.command('menu', (ctx) => {
@@ -25,126 +95,161 @@ bot.command('menu', (ctx) => {
     parse_mode: 'Markdown',
     reply_markup: {
       inline_keyboard: [
-        [{ text: "Cadastrar Planta 🌿", callback_data: "cadastrar" }],
-        [{ text: "Minhas Plantas 📋", callback_data: "listar" }]
+        [{ text: "🌿 Cadastrar Planta", callback_data: "cadastrar" }],
+        [{ text: "📋 Minhas Plantas", callback_data: "listar" }],
+        [{ text: "📸 Enviar Foto", callback_data: "foto" }],
+        [{ text: "⚙️ Configurações", callback_data: "config" }],
+        [{ text: "❓ Ajuda", callback_data: "ajuda" }]
       ]
     }
   });
 });
 
-// Listar Plantas (ajustado para a estrutura do Firestore)
-bot.action('listar', async (ctx) => {
-  try {
-    const snapshot = await db.collection('plants').get();
-    if (snapshot.empty) {
-      ctx.reply('Nenhuma planta cadastrada ainda! 🌵');
-      return;
+// Cadastrar Planta (com localização e clima)
+bot.action('cadastrar', async (ctx) => {
+  await ctx.answerCbQuery();
+  ctx.reply('📍 Primeiro, digite sua *cidade* para ajustes de rega baseados no clima:', { parse_mode: 'Markdown' });
+
+  bot.on('text', async (ctx) => {
+    const localizacao = ctx.message.text;
+    const userId = ctx.from.id.toString();
+
+    // Salvar localização
+    await db.collection('plants').doc(userId).set({ localizacao }, { merge: true });
+
+    // Fluxo de cadastro da planta
+    ctx.reply('🌿 Digite o *apelido* da planta:', { parse_mode: 'Markdown' });
+    cadastroState[userId] = { step: 'apelido' };
+
+    bot.on('text', (ctx, next) => {
+      if (cadastroState[userId]?.step === 'apelido') {
+        cadastroState[userId].apelido = ctx.message.text;
+        cadastroState[userId].step = 'nomeCientifico';
+        ctx.reply('🔬 Digite o *nome científico*:', { parse_mode: 'Markdown' });
+      } else {
+        next();
+      }
+    });
+
+    bot.on('text', (ctx, next) => {
+      if (cadastroState[userId]?.step === 'nomeCientifico') {
+        cadastroState[userId].nomeCientifico = ctx.message.text;
+        cadastroState[userId].step = 'intervalo';
+        ctx.reply('⏳ Digite o *intervalo de rega* (dias):', { parse_mode: 'Markdown' });
+      } else {
+        next();
+      }
+    });
+
+    bot.on('text', async (ctx) => {
+      if (cadastroState[userId]?.step === 'intervalo') {
+        const intervalo = parseInt(ctx.message.text, 10);
+
+        if (isNaN(intervalo)) {
+          ctx.reply('❌ Intervalo inválido! Use números.');
+          return;
+        }
+
+        // Salvar planta
+        await db.collection('plants').doc(userId).update({
+          items: admin.firestore.FieldValue.arrayUnion({
+            apelido: cadastroState[userId].apelido,
+            nomeCientifico: cadastroState[userId].nomeCientifico,
+            intervalo,
+            ultimaRega: new Date().toISOString(),
+            historicoRegas: [],
+            fotos: []
+          })
+        });
+
+        ctx.reply('✅ *Planta cadastrada!* Use /menu para mais opções.', { parse_mode: 'Markdown' });
+        delete cadastroState[userId];
+      }
+    });
+  });
+});
+
+// Enviar Fotos
+bot.action('foto', async (ctx) => {
+  await ctx.answerCbQuery();
+  ctx.reply('📸 Escolha uma planta para adicionar uma foto:', {
+    reply_markup: {
+      inline_keyboard: (await getPlantasButtons(ctx.from.id)).concat([[{ text: "🚫 Cancelar", callback_data: "cancelar" }]])
     }
+  });
+});
 
-    // Log dos dados brutos para depuração
-    console.log('Dados do Firestore:', snapshot.docs.map(doc => doc.data()));
+// Registrar Foto
+bot.on('photo', async (ctx) => {
+  const userId = ctx.from.id.toString();
+  const fotoId = ctx.message.photo[0].file_id;
 
-    const plantas = snapshot.docs.flatMap(doc => {
-      const data = doc.data();
-      const items = data.items || []; // Acessa o campo "items"
-      return items.map(item => {
-        const apelido = item.apelido || 'Sem apelido';
-        const nomeCientifico = item.nomeCientifico || 'Sem nome científico';
-        const intervalo = item.intervalo || 'N/A';
-        return `- ${apelido} (${nomeCientifico}) - Regar a cada ${intervalo} dias`;
-      });
-    }).join('\n');
+  if (edicaoState[userId]?.plantaParaFoto) {
+    await db.collection('plants').doc(userId).update({
+      items: admin.firestore.FieldValue.arrayUnion({
+        apelido: edicaoState[userId].plantaParaFoto,
+        fotos: admin.firestore.FieldValue.arrayUnion(fotoId)
+      })
+    });
 
-    ctx.reply(`🌿 *Suas Plantas:*\n${plantas || 'Nenhuma planta cadastrada ainda! 🌵'}`, { parse_mode: 'Markdown' });
-  } catch (err) {
-    console.error('Erro ao listar plantas:', err);
-    ctx.reply('Ocorreu um erro ao buscar suas plantas. 😢');
+    ctx.reply('📸 Foto adicionada à linha do tempo!');
+    delete edicaoState[userId];
   }
 });
 
-// Cadastrar Planta (fluxo corrigido com middlewares)
-bot.action('cadastrar', async (ctx) => {
-  await ctx.answerCbQuery();
-  ctx.reply('Digite o *apelido* da planta:', { parse_mode: 'Markdown' });
+// Editar/Remover Plantas
+bot.action(/editar_(.+)/, async (ctx) => {
+  const apelido = ctx.match[1];
+  const userId = ctx.from.id.toString();
+  edicaoState[userId] = { planta: apelido, step: 'editar' };
 
-  // Define o estado inicial
-  cadastroState[ctx.from.id] = { step: 'apelido' };
-
-  // Middleware para coletar o apelido
-  bot.on('text', (ctx, next) => {
-    if (cadastroState[ctx.from.id]?.step === 'apelido') {
-      cadastroState[ctx.from.id].apelido = ctx.message.text;
-      cadastroState[ctx.from.id].step = 'nomeCientifico';
-      ctx.reply('Digite o *nome científico* da planta:', { parse_mode: 'Markdown' });
-    } else {
-      next();
-    }
-  });
-
-  // Middleware para coletar o nome científico
-  bot.on('text', (ctx, next) => {
-    if (cadastroState[ctx.from.id]?.step === 'nomeCientifico') {
-      cadastroState[ctx.from.id].nomeCientifico = ctx.message.text;
-      cadastroState[ctx.from.id].step = 'intervalo';
-      ctx.reply('Digite o *intervalo de rega* (em dias):', { parse_mode: 'Markdown' });
-    } else {
-      next();
-    }
-  });
-
-  // Middleware para coletar o intervalo de rega
-  bot.on('text', async (ctx) => {
-    if (cadastroState[ctx.from.id]?.step === 'intervalo') {
-      const intervalo = parseInt(ctx.message.text, 10);
-
-      if (isNaN(intervalo)) {
-        ctx.reply('❌ O intervalo deve ser um número. Tente novamente!');
-        return;
-      }
-
-      try {
-        // Adiciona a nova planta ao array "items"
-        const plantasRef = db.collection('plants').doc('lista'); // Use um ID fixo ou ajuste conforme necessário
-        await plantasRef.set({
-          items: admin.firestore.FieldValue.arrayUnion({
-            apelido: cadastroState[ctx.from.id].apelido,
-            nomeCientifico: cadastroState[ctx.from.id].nomeCientifico,
-            intervalo,
-            ultimaRega: new Date().toISOString()
-          })
-        }, { merge: true });
-
-        ctx.reply('✅ Planta cadastrada com sucesso!');
-      } catch (err) {
-        console.error('Erro ao cadastrar:', err);
-        ctx.reply('❌ Erro ao salvar a planta. Tente novamente!');
-      }
-
-      // Limpa o estado após o cadastro
-      delete cadastroState[ctx.from.id];
+  ctx.reply(`✏️ Editar *${apelido}*:`, {
+    parse_mode: 'Markdown',
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "✏️ Renomear", callback_data: `renomear_${apelido}` }],
+        [{ text: "⏳ Alterar Intervalo", callback_data: `alterar_intervalo_${apelido}` }],
+        [{ text: "🗑️ Remover", callback_data: `remover_${apelido}` }],
+        [{ text: "🚫 Cancelar", callback_data: "cancelar" }]
+      ]
     }
   });
 });
 
-// Health Check
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', message: 'Bot operante! 🌟' });
+// Histórico de Regas
+bot.action(/historico_(.+)/, async (ctx) => {
+  const apelido = ctx.match[1];
+  const userId = ctx.from.id.toString();
+  const userDoc = await db.collection('plants').doc(userId).get();
+  const planta = userDoc.data().items.find(p => p.apelido === apelido);
+
+  ctx.reply(`📅 Histórico de regas de *${apelido}:*\n${planta.historicoRegas.map(d => `- ${new Date(d).toLocaleString()}`).join('\n') || 'Nenhuma rega registrada.'}`, 
+    { parse_mode: 'Markdown' }
+  );
 });
 
-// Iniciar o bot com tratamento de conflitos
+// ================= FUNÇÕES AUXILIARES =================
+
+// Gerar botões das plantas
+const getPlantasButtons = async (userId) => {
+  const userDoc = await db.collection('plants').doc(userId.toString()).get();
+  return userDoc.data()?.items?.map(planta => [
+    { 
+      text: planta.apelido, 
+      callback_data: `detalhes_${planta.apelido}` 
+    }
+  ]) || [];
+};
+
+// ================= INICIALIZAÇÃO =================
+
 bot.launch({
   polling: {
     allowedUpdates: ['message', 'callback_query'],
-    dropPendingUpdates: true // Ignora atualizações pendentes ao reiniciar
+    dropPendingUpdates: true
   }
-}).then(() => {
-  console.log('Bot iniciado com sucesso!');
-}).catch(err => {
-  console.error('Erro ao iniciar o bot:', err);
-});
+}).then(() => console.log('Bot iniciado! 🚀'));
 
-// Iniciar servidor
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+app.listen(process.env.PORT || 3000, () => {
   console.log('🟢 Servidor rodando!');
 });
