@@ -59,21 +59,21 @@ bot.action('listar', async (ctx) => {
   }
 });
 
-// Cadastrar Planta (ajustado para a estrutura do Firestore)
+// Cadastrar Planta (fluxo corrigido)
 bot.action('cadastrar', async (ctx) => {
   await ctx.answerCbQuery();
   ctx.reply('Digite o *apelido* da planta:', { parse_mode: 'Markdown' });
 
-  // Fluxo de cadastro
-  bot.on('text', async (ctx) => {
+  // Função para coletar o apelido
+  const coletarApelido = async (ctx) => {
     const apelido = ctx.message.text;
 
-    ctx.reply('Digite o *nome científico* da planta:', { parse_mode: 'Markdown' });
-    bot.on('text', async (ctx) => {
+    // Função para coletar o nome científico
+    const coletarNomeCientifico = async (ctx) => {
       const nomeCientifico = ctx.message.text;
 
-      ctx.reply('Digite o *intervalo de rega* (em dias):', { parse_mode: 'Markdown' });
-      bot.on('text', async (ctx) => {
+      // Função para coletar o intervalo de rega
+      const coletarIntervalo = async (ctx) => {
         const intervalo = parseInt(ctx.message.text, 10);
 
         if (isNaN(intervalo)) {
@@ -98,9 +98,22 @@ bot.action('cadastrar', async (ctx) => {
           console.error('Erro ao cadastrar:', err);
           ctx.reply('❌ Erro ao salvar a planta. Tente novamente!');
         }
-      });
-    });
-  });
+      };
+
+      // Remove o listener anterior e pede o intervalo
+      bot.off('text', coletarNomeCientifico);
+      ctx.reply('Digite o *intervalo de rega* (em dias):', { parse_mode: 'Markdown' });
+      bot.on('text', coletarIntervalo);
+    };
+
+    // Remove o listener anterior e pede o nome científico
+    bot.off('text', coletarApelido);
+    ctx.reply('Digite o *nome científico* da planta:', { parse_mode: 'Markdown' });
+    bot.on('text', coletarNomeCientifico);
+  };
+
+  // Inicia o fluxo de cadastro
+  bot.on('text', coletarApelido);
 });
 
 // Health Check
