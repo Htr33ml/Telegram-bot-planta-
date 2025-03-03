@@ -21,6 +21,9 @@ const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 const app = express();
 app.use(express.json());
 
+// Variáveis de estado
+let edicaoState = {};
+
 // ================= CENAS (WIZARD) =================
 
 // Cena para cadastro de plantas
@@ -31,7 +34,6 @@ const cadastroPlanta = new Scenes.WizardScene(
     return ctx.wizard.next();
   },
   (ctx) => {
-    // Verifica se ctx.message existe e contém texto
     if (!ctx.message || !ctx.message.text) {
       ctx.reply('❌ Por favor, digite uma cidade válida.');
       return;
@@ -195,12 +197,136 @@ bot.action('listar', async (ctx) => {
   }
 
   const plantas = userDoc.data().items;
-  let mensagem = '🌿 *Suas Plantas:*\n\n';
-  plantas.forEach((planta, index) => {
-    mensagem += `${index + 1}. ${planta.apelido} (${planta.nomeCientifico})\n`;
-  });
+  const buttons = plantas.map(planta => [{ text: planta.apelido, callback_data: `detalhes_${planta.apelido}` }]);
 
-  ctx.reply(mensagem, { parse_mode: 'Markdown' });
+  ctx.reply('🌿 *Suas Plantas:*', {
+    parse_mode: 'Markdown',
+    reply_markup: { inline_keyboard: buttons }
+  });
+});
+
+// Detalhes da Planta
+bot.action(/detalhes_(.+)/, async (ctx) => {
+  const apelido = ctx.match[1];
+  const userId = ctx.from.id.toString();
+  const userDoc = await db.collection('plants').doc(userId).get();
+  const plantas = userDoc.data().items;
+  const planta = plantas.find(p => p.apelido === apelido);
+
+  if (!planta) {
+    ctx.reply('❌ Planta não encontrada.');
+    return;
+  }
+
+  // Verifica se a planta está com sede
+  const hoje = new Date();
+  const proximaRega = await calcularProximaRega(planta.ultimaRega, planta.intervalo, userDoc.data().localizacao);
+  const status = hoje >= proximaRega ? '❌ Sua planta está com sede!' : '✅ Sua planta está saudável!';
+
+  // Monta a mensagem do relatório
+  const mensagem = `🌿 *Relatório da ${planta.apelido}:*\n\n` +
+    `🔬 *Nome Científico:* ${planta.nomeCientifico}\n` +
+    `📅 *Última Rega:* ${new Date(planta.ultimaRega).toLocaleString()}\n` +
+    `⏳ *Próxima Rega:* ${proximaRega.toLocaleString()}\n` +
+    `📸 *Fotos:* ${planta.fotos.length}\n` +
+    `🟢 *Status:* ${status}`;
+
+  // Botões de ação
+  const botoes = [
+    [{ text: "💧 Regar Agora", callback_data: `regar_${planta.apelido}` }],
+    [{ text: "🗑️ Excluir Planta", callback_data: `excluir_${planta.apelido}` }],
+    [{ text: "🔙 Voltar", callback_data: "listar" }]
+  ];
+
+  ctx.reply(mensagem, {
+    parse_mode: 'Markdown',
+    reply_markup: { inline_keyboard: botoes }
+  });
+});
+
+// Regar Planta
+bot.action(/regar_(.+)/, async (ctx) => {
+  const apelido = ctx.match[1];
+  const userId = ctx.from.id.toString();
+  const userDoc = await db.collection('plants').doc(userId).get();
+  const plantas = userDoc.data().items;
+
+  const plantaIndex = plantas.findIndex(p => p.apelido === apelido);
+  if (plantaIndex !== -1) {
+    plantas[plantaIndex].ultimaRega = new Date().toISOString();
+    plantas[plantaIndex].historicoRegas.push(new Date().toISOString());
+    await db.collection('plants').doc(userId).update({ items: plantas });
+    ctx.reply(`💧 ${apelido} foi regada com sucesso!`);
+  } else {
+    ctx.reply('❌ Planta não encontrada.');
+  }
+});
+
+// Excluir Planta
+bot.action(/excluir_(.+)/, async (ctx) => {
+  const apelido = ctx.match[1];
+  const userId = ctx.from.id.toString();
+  const userDoc = await db.collection('plants').doc(userId).get();
+  const plantas = userDoc.data().items;
+
+  const plantaIndex = plantas.findIndex(p => p.apelido === apelido);
+  if (plantaIndex !== -1) {
+    plantas.splice(plantaIndex, 1); // Remove a planta
+    await db.collection('plants').doc(userId).update({ items: plantas });
+    ctx.reply(`🗑️ ${apelido} foi excluída com sucesso!`);
+  } else {
+    ctx.reply('❌ Planta não encontrada.');
+  }
+});
+
+// Enviar Fotos
+bot.action('foto', async (ctx) => {
+  await ctx.answerCbQuery();
+  const userId = ctx.from.id.toString();
+  const userDoc = await db.collection('plants').doc(userId).get();
+
+  if (!userDoc.exists || !userDoc.data().items) {
+    ctx.reply('Você ainda não cadastrou nenhuma planta.');
+    return;
+  }
+
+  const plantas = userDoc.data().items;
+  const buttons = plantas.map(planta => [{ text: planta.apelido, callback_data: `foto_${planta.apelido}` }]);
+
+  ctx.reply('📸 Escolha uma planta para adicionar uma foto:', {
+    reply_markup: { inline_keyboard: buttons }
+  });
+});
+
+// Registrar Foto
+bot.on('photo', async (ctx) => {
+  const userId = ctx.from.id.toString();
+  const fotoId = ctx.message.photo[0].file_id;
+
+  if (edicaoState[userId]?.plantaParaFoto) {
+    const apelido = edicaoState[userId].plantaParaFoto;
+    const userDoc = await db.collection('plants').doc(userId).get();
+    const plantas = userDoc.data().items;
+
+    const plantaIndex = plantas.findIndex(p => p.apelido === apelido);
+    if (plantaIndex !== -1) {
+      plantas[plantaIndex].fotos.push(fotoId);
+      await db.collection('plants').doc(userId).update({ items: plantas });
+      ctx.reply('📸 Foto adicionada à linha do tempo!');
+    } else {
+      ctx.reply('❌ Planta não encontrada.');
+    }
+
+    delete edicaoState[userId]; // Limpa o estado
+  }
+});
+
+// Cancelar envio de foto
+bot.action('cancelar_foto', async (ctx) => {
+  const userId = ctx.from.id.toString();
+  delete edicaoState[userId]; // Limpa o estado
+  await ctx.answerCbQuery();
+  ctx.reply('❌ Envio de foto cancelado.');
 });
 
 // Ajuda
@@ -222,48 +348,6 @@ bot.action('config', async (ctx) => {
     '2. Configurar notificações',
     { parse_mode: 'Markdown' }
   );
-});
-
-// Enviar Fotos
-bot.action('foto', async (ctx) => {
-  await ctx.answerCbQuery();
-  const userId = ctx.from.id.toString();
-  const userDoc = await db.collection('plants').doc(userId).get();
-
-  if (!userDoc.exists || !userDoc.data().items) {
-    ctx.reply('Você ainda não cadastrou nenhuma planta.');
-    return;
-  }
-
-  const plantas = userDoc.data().items;
-  const buttons = plantas.map(planta => [{ text: planta.apelido, callback_data: `foto_${planta.apelido}` }]);
-
-  ctx.reply('📸 Escolha uma planta para adicionar uma foto:', {
-    reply_markup: {
-      inline_keyboard: buttons
-    }
-  });
-});
-
-// Registrar Foto
-bot.on('photo', async (ctx) => {
-  const userId = ctx.from.id.toString();
-  const fotoId = ctx.message.photo[0].file_id;
-
-  const userDoc = await db.collection('plants').doc(userId).get();
-  const plantas = userDoc.data().items;
-
-  if (plantas.length > 0) {
-    const planta = plantas[0]; // Adiciona a foto à primeira planta (pode ser ajustado)
-    await db.collection('plants').doc(userId).update({
-      items: admin.firestore.FieldValue.arrayUnion({
-        ...planta,
-        fotos: [...(planta.fotos || []), fotoId]
-      })
-    });
-
-    ctx.reply('📸 Foto adicionada à linha do tempo!');
-  }
 });
 
 // ================= INICIALIZAÇÃO =================
