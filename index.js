@@ -59,7 +59,7 @@ bot.action('listar', async (ctx) => {
   }
 });
 
-// Cadastrar Planta (fluxo corrigido)
+// Cadastrar Planta (fluxo corrigido sem bot.off)
 bot.action('cadastrar', async (ctx) => {
   await ctx.answerCbQuery();
   ctx.reply('Digite o *apelido* da planta:', { parse_mode: 'Markdown' });
@@ -101,19 +101,17 @@ bot.action('cadastrar', async (ctx) => {
       };
 
       // Remove o listener anterior e pede o intervalo
-      bot.off('text', coletarNomeCientifico);
+      bot.hears(/.*/, coletarIntervalo); // Escuta qualquer texto para o intervalo
       ctx.reply('Digite o *intervalo de rega* (em dias):', { parse_mode: 'Markdown' });
-      bot.on('text', coletarIntervalo);
     };
 
     // Remove o listener anterior e pede o nome científico
-    bot.off('text', coletarApelido);
+    bot.hears(/.*/, coletarNomeCientifico); // Escuta qualquer texto para o nome científico
     ctx.reply('Digite o *nome científico* da planta:', { parse_mode: 'Markdown' });
-    bot.on('text', coletarNomeCientifico);
   };
 
   // Inicia o fluxo de cadastro
-  bot.on('text', coletarApelido);
+  bot.hears(/.*/, coletarApelido); // Escuta qualquer texto para o apelido
 });
 
 // Health Check
