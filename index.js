@@ -49,7 +49,7 @@ bot.action('listar', async (ctx) => {
 
     const plantas = snapshot.docs.map(doc => {
       const data = doc.data();
-      return `- ${data.apeLido} (${data.nomeClientifico}) - Regar a cada ${data.intervalo} dias`;
+      return `- ${data.apelido} (${data.nomeClientifico}) - Regar a cada ${data.intervalo} dias`;
     }).join('\n');
 
     ctx.reply(`🌿 *Suas Plantas:*\n${plantas}`, { parse_mode: 'Markdown' });
