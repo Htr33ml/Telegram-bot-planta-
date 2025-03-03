@@ -9,16 +9,7 @@ admin.initializeApp({
   credential: admin.credential.cert(serviceAccount)
 });
 
-const db = admin.firestore(); // Conexão com o Firestore
-
-// Teste de conexão
-db.listCollections()
-  .then(collections => {
-    console.log('✅ Firebase conectado! Coleções:', collections.map(c => c.id));
-  })
-  .catch(err => {
-    console.error('🔥 ERRO NO FIREBASE:', err);
-  });
+const db = admin.firestore();
 
 // ================= 🤖 BOT =================
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
@@ -38,10 +29,10 @@ bot.command('menu', (ctx) => {
   });
 });
 
-// Listar Plantas
+// Listar Plantas (CAMPOS CORRETOS)
 bot.action('listar', async (ctx) => {
   try {
-    const snapshot = await admin.firestore().collection('plants').get();
+    const snapshot = await db.collection('plants').get();
     if (snapshot.empty) {
       ctx.reply('Nenhuma planta cadastrada ainda! 🌵');
       return;
@@ -49,7 +40,10 @@ bot.action('listar', async (ctx) => {
 
     const plantas = snapshot.docs.map(doc => {
       const data = doc.data();
-      return `- ${data.apelido} (${data.nomeClientifico}) - Regar a cada ${data.intervalo} dias`;
+      const apelido = data.apelido || 'Sem apelido';
+      const nomeCientifico = data.nomeCientifico || 'Sem nome científico'; // Campo sem acento!
+      const intervalo = data.intervalo || 'N/A';
+      return `- ${apelido} (${nomeCientifico}) - Regar a cada ${intervalo} dias`;
     }).join('\n');
 
     ctx.reply(`🌿 *Suas Plantas:*\n${plantas}`, { parse_mode: 'Markdown' });
@@ -57,6 +51,40 @@ bot.action('listar', async (ctx) => {
     console.error('Erro ao listar plantas:', err);
     ctx.reply('Ocorreu um erro ao buscar suas plantas. 😢');
   }
+});
+
+// Cadastrar Planta (CAMPOS CORRETOS)
+bot.action('cadastrar', async (ctx) => {
+  await ctx.answerCbQuery();
+  ctx.reply('Digite o *apelido* da planta:', { parse_mode: 'Markdown' });
+
+  // Fluxo de cadastro
+  bot.on('text', async (ctx) => {
+    const apelido = ctx.message.text;
+
+    ctx.reply('Digite o *nome científico* da planta:', { parse_mode: 'Markdown' });
+    bot.on('text', async (ctx) => {
+      const nomeCientifico = ctx.message.text; // Variável sem acento!
+
+      ctx.reply('Digite o *intervalo de rega* (em dias):', { parse_mode: 'Markdown' });
+      bot.on('text', async (ctx) => {
+        const intervalo = parseInt(ctx.message.text, 10);
+
+        try {
+          await db.collection('plants').add({
+            apelido,
+            nomeCientifico, // Campo sem acento!
+            intervalo,
+            ultimaRega: new Date().toISOString()
+          });
+          ctx.reply('✅ Planta cadastrada com sucesso!');
+        } catch (err) {
+          console.error('Erro ao cadastrar:', err);
+          ctx.reply('❌ Erro ao salvar a planta. Tente novamente!');
+        }
+      });
+    });
+  });
 });
 
 // Health Check
@@ -67,5 +95,5 @@ app.get('/health', (req, res) => {
 // Iniciar
 bot.launch();
 app.listen(process.env.PORT || 3000, () => {
-  console.log(`🟢 Servidor rodando na porta ${process.env.PORT || 3000}`);
+  console.log('🟢 Servidor rodando!');
 });
