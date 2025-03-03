@@ -16,6 +16,9 @@ const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 const app = express();
 app.use(express.json());
 
+// Variável para armazenar o estado do cadastro
+let cadastroState = {};
+
 // Menu Principal
 bot.command('menu', (ctx) => {
   ctx.reply('🌱 *Menu do PlantBot*', {
@@ -59,59 +62,68 @@ bot.action('listar', async (ctx) => {
   }
 });
 
-// Cadastrar Planta (fluxo corrigido sem bot.off)
+// Cadastrar Planta (fluxo corrigido com middlewares)
 bot.action('cadastrar', async (ctx) => {
   await ctx.answerCbQuery();
   ctx.reply('Digite o *apelido* da planta:', { parse_mode: 'Markdown' });
 
-  // Função para coletar o apelido
-  const coletarApelido = async (ctx) => {
-    const apelido = ctx.message.text;
+  // Define o estado inicial
+  cadastroState[ctx.from.id] = { step: 'apelido' };
 
-    // Função para coletar o nome científico
-    const coletarNomeCientifico = async (ctx) => {
-      const nomeCientifico = ctx.message.text;
+  // Middleware para coletar o apelido
+  bot.on('text', (ctx, next) => {
+    if (cadastroState[ctx.from.id]?.step === 'apelido') {
+      cadastroState[ctx.from.id].apelido = ctx.message.text;
+      cadastroState[ctx.from.id].step = 'nomeCientifico';
+      ctx.reply('Digite o *nome científico* da planta:', { parse_mode: 'Markdown' });
+    } else {
+      next();
+    }
+  });
 
-      // Função para coletar o intervalo de rega
-      const coletarIntervalo = async (ctx) => {
-        const intervalo = parseInt(ctx.message.text, 10);
-
-        if (isNaN(intervalo)) {
-          ctx.reply('❌ O intervalo deve ser um número. Tente novamente!');
-          return;
-        }
-
-        try {
-          // Adiciona a nova planta ao array "items"
-          const plantasRef = db.collection('plants').doc('lista'); // Use um ID fixo ou ajuste conforme necessário
-          await plantasRef.set({
-            items: admin.firestore.FieldValue.arrayUnion({
-              apelido,
-              nomeCientifico,
-              intervalo,
-              ultimaRega: new Date().toISOString()
-            })
-          }, { merge: true });
-
-          ctx.reply('✅ Planta cadastrada com sucesso!');
-        } catch (err) {
-          console.error('Erro ao cadastrar:', err);
-          ctx.reply('❌ Erro ao salvar a planta. Tente novamente!');
-        }
-      };
-
-      // Remove o listener anterior e pede o intervalo
-      bot.hears(/.*/, coletarIntervalo); // Escuta qualquer texto para o intervalo
+  // Middleware para coletar o nome científico
+  bot.on('text', (ctx, next) => {
+    if (cadastroState[ctx.from.id]?.step === 'nomeCientifico') {
+      cadastroState[ctx.from.id].nomeCientifico = ctx.message.text;
+      cadastroState[ctx.from.id].step = 'intervalo';
       ctx.reply('Digite o *intervalo de rega* (em dias):', { parse_mode: 'Markdown' });
-    };
+    } else {
+      next();
+    }
+  });
 
-    // Remove o listener anterior e pede o nome científico
-    bot.hears(/.*/, coletarNomeCientifico); // Escuta qualquer texto para o nome científico
-    ctx.reply('Digite o *nome científico* da planta:', { parse_mode: 'Markdown' });
-  };
+  // Middleware para coletar o intervalo de rega
+  bot.on('text', async (ctx) => {
+    if (cadastroState[ctx.from.id]?.step === 'intervalo') {
+      const intervalo = parseInt(ctx.message.text, 10);
 
-  // Inicia o fluxo de cadastro
-  bot.hears(/.*/, coletarApelido); // Escuta qualquer texto para o apelido
+      if (isNaN(intervalo)) {
+        ctx.reply('❌ O intervalo deve ser um número. Tente novamente!');
+        return;
+      }
+
+      try {
+        // Adiciona a nova planta ao array "items"
+        const plantasRef = db.collection('plants').doc('lista'); // Use um ID fixo ou ajuste conforme necessário
+        await plantasRef.set({
+          items: admin.firestore.FieldValue.arrayUnion({
+            apelido: cadastroState[ctx.from.id].apelido,
+            nomeCientifico: cadastroState[ctx.from.id].nomeCientifico,
+            intervalo,
+            ultimaRega: new Date().toISOString()
+          })
+        }, { merge: true });
+
+        ctx.reply('✅ Planta cadastrada com sucesso!');
+      } catch (err) {
+        console.error('Erro ao cadastrar:', err);
+        ctx.reply('❌ Erro ao salvar a planta. Tente novamente!');
+      }
+
+      // Limpa o estado após o cadastro
+      delete cadastroState[ctx.from.id];
+    }
+  });
 });
 
 // Health Check
