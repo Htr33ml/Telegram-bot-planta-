@@ -2,13 +2,14 @@ const { Telegraf } = require('telegraf');
 const admin = require('firebase-admin');
 const express = require('express');
 
-// ================= 🔥 FIREBASE =================
+// ================= 🔥 FIREBASE (FIRESTORE) =================
 const serviceAccount = JSON.parse(process.env.FIREBASE_CONFIG);
 
 admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-  databaseURL: "SUA_URL_DO_FIREBASE" // 👈 SUBSTITUA PELA SUA URL!
+  credential: admin.credential.cert(serviceAccount)
 });
+
+const db = admin.firestore(); // 👈 Isso já aponta para seu Firestore automaticamente
 
 // Teste de conexão
 admin.firestore().listCollections()
