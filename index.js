@@ -29,7 +29,7 @@ bot.command('menu', (ctx) => {
   });
 });
 
-// Listar Plantas (CAMPOS CORRETOS)
+// Listar Plantas (com tratamento para estrutura de dados)
 bot.action('listar', async (ctx) => {
   try {
     const snapshot = await db.collection('plants').get();
@@ -38,15 +38,18 @@ bot.action('listar', async (ctx) => {
       return;
     }
 
-    // Log dos dados brutos
+    // Log dos dados brutos para depuração
     console.log('Dados do Firestore:', snapshot.docs.map(doc => doc.data()));
 
     const plantas = snapshot.docs.map(doc => {
       const data = doc.data();
-      const apelido = data.apelido || 'Sem apelido';
-      const nomeCientifico = data.nomeCientifico || 'Sem nome científico';
-      const intervalo = data.intervalo || 'N/A';
-      return `- ${apelido} (${nomeCientifico}) - Regar a cada ${intervalo} dias`;
+      const items = data.items || [data]; // Acessa o campo "items" ou usa o documento direto
+      return items.map(item => {
+        const apelido = item.apelido || 'Sem apelido';
+        const nomeCientifico = item.nomeCientifico || 'Sem nome científico';
+        const intervalo = item.intervalo || 'N/A';
+        return `- ${apelido} (${nomeCientifico}) - Regar a cada ${intervalo} dias`;
+      }).join('\n');
     }).join('\n');
 
     ctx.reply(`🌿 *Suas Plantas:*\n${plantas}`, { parse_mode: 'Markdown' });
@@ -56,7 +59,7 @@ bot.action('listar', async (ctx) => {
   }
 });
 
-// Cadastrar Planta (CAMPOS CORRETOS)
+// Cadastrar Planta (com validação de intervalo)
 bot.action('cadastrar', async (ctx) => {
   await ctx.answerCbQuery();
   ctx.reply('Digite o *apelido* da planta:', { parse_mode: 'Markdown' });
@@ -100,8 +103,20 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', message: 'Bot operante! 🌟' });
 });
 
-// Iniciar
-bot.launch();
-app.listen(process.env.PORT || 3000, () => {
+// Iniciar o bot com tratamento de conflitos
+bot.launch({
+  polling: {
+    allowedUpdates: ['message', 'callback_query'],
+    dropPendingUpdates: true // Ignora atualizações pendentes ao reiniciar
+  }
+}).then(() => {
+  console.log('Bot iniciado com sucesso!');
+}).catch(err => {
+  console.error('Erro ao iniciar o bot:', err);
+});
+
+// Iniciar servidor
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
   console.log('🟢 Servidor rodando!');
 });
