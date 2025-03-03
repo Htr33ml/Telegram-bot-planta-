@@ -31,21 +31,42 @@ const cadastroPlanta = new Scenes.WizardScene(
     return ctx.wizard.next();
   },
   (ctx) => {
+    // Verifica se ctx.message existe e contém texto
+    if (!ctx.message || !ctx.message.text) {
+      ctx.reply('❌ Por favor, digite uma cidade válida.');
+      return;
+    }
+
     ctx.wizard.state.localizacao = ctx.message.text;
     ctx.reply('🌿 Digite o *apelido* da planta:', { parse_mode: 'Markdown' });
     return ctx.wizard.next();
   },
   (ctx) => {
+    if (!ctx.message || !ctx.message.text) {
+      ctx.reply('❌ Por favor, digite um apelido válido.');
+      return;
+    }
+
     ctx.wizard.state.apelido = ctx.message.text;
     ctx.reply('🔬 Digite o *nome científico*:', { parse_mode: 'Markdown' });
     return ctx.wizard.next();
   },
   (ctx) => {
+    if (!ctx.message || !ctx.message.text) {
+      ctx.reply('❌ Por favor, digite um nome científico válido.');
+      return;
+    }
+
     ctx.wizard.state.nomeCientifico = ctx.message.text;
     ctx.reply('⏳ Digite o *intervalo de rega* (dias):', { parse_mode: 'Markdown' });
     return ctx.wizard.next();
   },
   async (ctx) => {
+    if (!ctx.message || !ctx.message.text) {
+      ctx.reply('❌ Por favor, digite um intervalo válido.');
+      return;
+    }
+
     const intervalo = parseInt(ctx.message.text, 10);
 
     if (isNaN(intervalo)) {
