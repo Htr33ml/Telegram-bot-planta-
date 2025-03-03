@@ -1,7 +1,7 @@
 // telegram.js
 const express = require("express");
 const bodyParser = require("body-parser");
-const TelegramBot = require("node-telegram-bot-api");
+const Telegraf = require("telegraf");
 const { processarMensagem, atualizarRegaPorIndice } = require("./bot");
 const keepAlive = require("./keepalive");
 
