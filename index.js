@@ -38,10 +38,13 @@ bot.action('listar', async (ctx) => {
       return;
     }
 
+    // Log dos dados brutos
+    console.log('Dados do Firestore:', snapshot.docs.map(doc => doc.data()));
+
     const plantas = snapshot.docs.map(doc => {
       const data = doc.data();
       const apelido = data.apelido || 'Sem apelido';
-      const nomeCientifico = data.nomeCientifico || 'Sem nome científico'; // Campo sem acento!
+      const nomeCientifico = data.nomeCientifico || 'Sem nome científico';
       const intervalo = data.intervalo || 'N/A';
       return `- ${apelido} (${nomeCientifico}) - Regar a cada ${intervalo} dias`;
     }).join('\n');
@@ -64,16 +67,21 @@ bot.action('cadastrar', async (ctx) => {
 
     ctx.reply('Digite o *nome científico* da planta:', { parse_mode: 'Markdown' });
     bot.on('text', async (ctx) => {
-      const nomeCientifico = ctx.message.text; // Variável sem acento!
+      const nomeCientifico = ctx.message.text;
 
       ctx.reply('Digite o *intervalo de rega* (em dias):', { parse_mode: 'Markdown' });
       bot.on('text', async (ctx) => {
         const intervalo = parseInt(ctx.message.text, 10);
 
+        if (isNaN(intervalo)) {
+          ctx.reply('❌ O intervalo deve ser um número. Tente novamente!');
+          return;
+        }
+
         try {
           await db.collection('plants').add({
             apelido,
-            nomeCientifico, // Campo sem acento!
+            nomeCientifico,
             intervalo,
             ultimaRega: new Date().toISOString()
           });
