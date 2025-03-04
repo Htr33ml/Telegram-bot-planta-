@@ -3,6 +3,7 @@ const admin = require('firebase-admin');
 const express = require('express');
 const cron = require('node-cron');
 const axios = require('axios'); // Para integração com clima
+const { utcToZonedTime, format } = require('date-fns-tz'); // Para ajuste de fuso horário
 
 // ================= 🔥 FIREBASE =================
 const serviceAccount = JSON.parse(process.env.FIREBASE_CONFIG);
@@ -104,6 +105,13 @@ bot.use(session());
 bot.use(stage.middleware());
 
 // ================= FUNÇÕES AUXILIARES =================
+
+// Função para ajustar o fuso horário para o Rio de Janeiro (America/Sao_Paulo)
+const formatarData = (data) => {
+  const timeZone = 'America/Sao_Paulo'; // Fuso horário do Rio de Janeiro
+  const zonedDate = utcToZonedTime(new Date(data), timeZone);
+  return format(zonedDate, 'dd/MM/yyyy HH:mm', { timeZone });
+};
 
 // Função para calcular a próxima rega com base no clima
 const calcularProximaRega = async (ultimaRega, intervalo, localizacao) => {
@@ -229,21 +237,10 @@ bot.action(/detalhes_(.+)/, async (ctx) => {
   const proximaRega = await calcularProximaRega(planta.ultimaRega, planta.intervalo, userDoc.data().localizacao);
   const status = hoje >= proximaRega ? '❌ Sua planta está com sede!' : '✅ Sua planta está saudável!';
 
-  // Formata a data no padrão brasileiro (DD/MM/AAAA HH:MM)
-  const formatarData = (data) => {
-    return data.toLocaleString('pt-BR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
-
   // Monta a mensagem do relatório
   let mensagem = `🌿 *Relatório da ${planta.apelido}:*\n\n` +
     `🔬 *Nome Científico:* ${planta.nomeCientifico}\n` +
-    `📅 *Última Rega:* ${formatarData(new Date(planta.ultimaRega))}\n` +
+    `📅 *Última Rega:* ${formatarData(planta.ultimaRega)}\n` +
     `⏳ *Próxima Rega:* ${formatarData(proximaRega)}\n` +
     `📸 *Fotos:* ${planta.fotos?.length || 0}\n` +
     `🟢 *Status:* ${status}`;
