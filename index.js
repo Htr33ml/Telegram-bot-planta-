@@ -87,7 +87,7 @@ const cadastroPlanta = new Scenes.WizardScene(
           intervalo,
           ultimaRega: new Date().toISOString(),
           historicoRegas: [],
-          fotos: []
+          fotos: [] // Garantir que fotos seja um array vazio
         })
       },
       { merge: true }
@@ -228,7 +228,7 @@ bot.action(/detalhes_(.+)/, async (ctx) => {
     `🔬 *Nome Científico:* ${planta.nomeCientifico}\n` +
     `📅 *Última Rega:* ${new Date(planta.ultimaRega).toLocaleString()}\n` +
     `⏳ *Próxima Rega:* ${proximaRega.toLocaleString()}\n` +
-    `📸 *Fotos:* ${planta.fotos.length}\n` +
+    `📸 *Fotos:* ${planta.fotos?.length || 0}\n` + // Garantir que fotos seja um array
     `🟢 *Status:* ${status}`;
 
   // Botões de ação
