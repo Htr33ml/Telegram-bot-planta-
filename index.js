@@ -348,8 +348,8 @@ bot.action('ajuda', async (ctx) => {
     '1. Use /menu para navegar\n' +
     '2. Cadastre plantas para receber lembretes\n' +
     '3. Envie fotos para acompanhar o crescimento\n\n' +
-    'Desenvolvido por **Hugo Tremmel** 🌱\n' +
-    'Insta: @h.trmml',
+    'Desenvolvido por **Hugo Trein** 🌱\n' +
+    'Contato: @seu_usuario',
     { parse_mode: 'Markdown' }
   );
 });
@@ -404,4 +404,7 @@ bot.launch({
     allowedUpdates: ['message', 'callback_query'],
     dropPendingUpdates: true
   }
-}).then(() => console.log('BotTime flies when we're having a great chat! We’ve exceeded the length limit. Please start a new chat!
+}).then(() => console.log('Bot iniciado! 🚀'));
+
+app.listen(process.env.PORT || 3000, () => {
+  console.log('🟢Time flies when we're having a great chat! We’ve exceeded the length limit. Please start a new chat!
