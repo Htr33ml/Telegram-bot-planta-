@@ -178,7 +178,6 @@ bot.command('menu', (ctx) => {
         [{ text: "📋 Minhas Plantas", callback_data: "listar" }],
         [{ text: "📸 Enviar Foto", callback_data: "foto" }],
         [{ text: "🌦️ Clima", callback_data: "clima" }],
-        [{ text: "⚙️ Configurações", callback_data: "config" }],
         [{ text: "❓ Ajuda", callback_data: "ajuda" }]
       ]
     }
@@ -376,59 +375,6 @@ bot.action('ajuda', async (ctx) => {
     'Contato: @h.trmml',
     { parse_mode: 'Markdown' }
   );
-});
-
-// Configurações
-bot.action('config', async (ctx) => {
-  await ctx.answerCbQuery();
-  ctx.reply('⚙️ *Configurações:*', {
-    parse_mode: 'Markdown',
-    reply_markup: {
-      inline_keyboard: [
-        [{ text: "📍 Alterar Localização", callback_data: "alterar_localizacao" }],
-        [{ text: "🔔 Configurar Notificações", callback_data: "config_notificacoes" }],
-        [{ text: "🔙 Voltar", callback_data: "menu" }]
-      ]
-    }
-  });
-});
-
-// Configurar Notificações
-bot.action('config_notificacoes', async (ctx) => {
-  await ctx.answerCbQuery();
-  ctx.reply('🔔 *Configurar Notificações:*', {
-    parse_mode: 'Markdown',
-    reply_markup: {
-      inline_keyboard: [
-        [{ text: "⏰ Alterar Horário de Lembretes", callback_data: "alterar_horario" }],
-        [{ text: "🔙 Voltar", callback_data: "config" }]
-      ]
-    }
-  });
-});
-
-// Alterar Horário de Lembretes
-bot.action('alterar_horario', async (ctx) => {
-  await ctx.answerCbQuery();
-  ctx.reply('⏰ Digite o novo horário para os lembretes (formato HH:MM):');
-});
-
-// Receber Novo Horário
-bot.on('text', async (ctx) => {
-  const userId = ctx.from.id.toString();
-  const text = ctx.message.text;
-
-  // Verifica se o texto é um horário no formato HH:MM
-  const horarioRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
-  if (horarioRegex.test(text)) {
-    // Atualiza o agendamento dos lembretes
-    const [hora, minuto] = text.split(':');
-    cron.schedule(`${minuto} ${hora} * * *`, enviarLembretes);
-
-    ctx.reply(`✅ Lembretes configurados para ${text}.`);
-  } else {
-    ctx.reply('❌ Formato inválido! Use o formato HH:MM.');
-  }
 });
 
 // Clima
