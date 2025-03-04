@@ -2,7 +2,7 @@ const { Telegraf, Scenes, session } = require('telegraf');
 const admin = require('firebase-admin');
 const express = require('express');
 const cron = require('node-cron');
-const axios = require('axios'); // Para integração com clima
+const axios = require('axios'); // Para integração com clima e Trefle
 const { utcToZonedTime, format } = require('date-fns-tz'); // Para ajuste de fuso horário
 
 // ================= 🔥 FIREBASE =================
@@ -17,6 +17,9 @@ const db = admin.firestore();
 // ================= 🌦️ OPENWEATHERMAP =================
 const OPENWEATHER_API_KEY = process.env.OPENWEATHER_API_KEY;
 
+// ================= 🌿 TREFFLE API =================
+const TREFFLE_API_KEY = process.env.TREFFLE_API_KEY;
+
 // ================= 🤖 BOT =================
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 const app = express();
@@ -24,6 +27,89 @@ app.use(express.json());
 
 // Variáveis de estado
 let edicaoState = {};
+
+// ================= FUNÇÕES AUXILIARES =================
+
+// Função para buscar o nome científico da planta
+const buscarNomeCientifico = async (nomeComum) => {
+  try {
+    const response = await axios.get(
+      `https://trefle.io/api/v1/plants/search?token=${TREFFLE_API_KEY}&q=${nomeComum}`
+    );
+
+    if (response.data && response.data.data.length > 0) {
+      return response.data.data[0].scientific_name; // Retorna o primeiro resultado
+    } else {
+      return null; // Nenhum resultado encontrado
+    }
+  } catch (err) {
+    console.error('Erro ao buscar nome científico:', err);
+    return null;
+  }
+};
+
+// Função para ajustar o fuso horário para o Rio de Janeiro (America/Sao_Paulo)
+const formatarData = (data) => {
+  const timeZone = 'America/Sao_Paulo'; // Fuso horário do Rio de Janeiro
+  const zonedDate = utcToZonedTime(new Date(data), timeZone);
+  return format(zonedDate, 'dd/MM/yyyy HH:mm', { timeZone });
+};
+
+// Função para calcular a próxima rega com base no clima
+const calcularProximaRega = async (ultimaRega, intervalo, localizacao) => {
+  try {
+    const response = await axios.get(
+      `https://api.openweathermap.org/data/2.5/weather?q=${localizacao}&appid=${OPENWEATHER_API_KEY}`
+    );
+    const { rain } = response.data;
+    const intervaloAjustado = rain ? intervalo - 1 : intervalo;
+
+    const dataUltimaRega = new Date(ultimaRega);
+    dataUltimaRega.setDate(dataUltimaRega.getDate() + intervaloAjustado);
+    return dataUltimaRega;
+
+  } catch (err) {
+    const dataUltimaRega = new Date(ultimaRega);
+    dataUltimaRega.setDate(dataUltimaRega.getDate() + intervalo);
+    return dataUltimaRega;
+  }
+};
+
+// Função para enviar lembretes de rega
+const enviarLembretes = async () => {
+  const snapshot = await db.collection('plants').get();
+  snapshot.docs.forEach(async (doc) => {
+    const userData = doc.data();
+    const plantas = userData.items || [];
+    const localizacao = userData.localizacao || 'São Paulo'; // Default
+
+    plantas.forEach(async (planta) => {
+      const hoje = new Date();
+      const proximaRega = await calcularProximaRega(planta.ultimaRega, planta.intervalo, localizacao);
+
+      if (hoje >= proximaRega) {
+        const mensagemLembrete = `🌧️ *Hora de regar a ${planta.apelido}!*\n` +
+          `📅 *Próxima Rega:* ${formatarData(proximaRega)}\n` +
+          `💧 *Dica:* ${rain ? 'Está chovendo, então você pode reduzir a rega.' : 'Não está chovendo, então regue normalmente.'}`;
+
+        await bot.telegram.sendMessage(doc.id, mensagemLembrete, {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: "✅ Regar Agora", callback_data: `regar_${planta.apelido}` }],
+              [{ text: "🔔 Lembrar mais tarde", callback_data: 'ignorar' }]
+            ]
+          }
+        });
+
+        console.log(`Lembrete enviado para o usuário ${doc.id} sobre a planta ${planta.apelido}`);
+      }
+    });
+  });
+};
+
+// Agendar lembretes a cada hora
+cron.schedule('0 * * * *', enviarLembretes);
 
 // ================= CENAS (WIZARD) =================
 
@@ -44,14 +130,23 @@ const cadastroPlanta = new Scenes.WizardScene(
     ctx.reply('🌿 Digite o *apelido* da planta:', { parse_mode: 'Markdown' });
     return ctx.wizard.next();
   },
-  (ctx) => {
+  async (ctx) => {
     if (!ctx.message || !ctx.message.text) {
       ctx.reply('❌ Por favor, digite um apelido válido.');
       return;
     }
 
     ctx.wizard.state.apelido = ctx.message.text;
-    ctx.reply('🔬 Digite o *nome científico*:', { parse_mode: 'Markdown' });
+
+    // Busca o nome científico automaticamente
+    const nomeCientifico = await buscarNomeCientifico(ctx.wizard.state.apelido);
+    if (nomeCientifico) {
+      ctx.wizard.state.nomeCientifico = nomeCientifico;
+      ctx.reply(`🔬 O nome científico da planta é: *${nomeCientifico}*.`, { parse_mode: 'Markdown' });
+    } else {
+      ctx.reply('🔬 Não foi possível encontrar o nome científico. Por favor, digite o nome científico:', { parse_mode: 'Markdown' });
+    }
+
     return ctx.wizard.next();
   },
   (ctx) => {
@@ -60,7 +155,11 @@ const cadastroPlanta = new Scenes.WizardScene(
       return;
     }
 
-    ctx.wizard.state.nomeCientifico = ctx.message.text;
+    // Se o nome científico não foi encontrado automaticamente, use o que o usuário digitou
+    if (!ctx.wizard.state.nomeCientifico) {
+      ctx.wizard.state.nomeCientifico = ctx.message.text;
+    }
+
     ctx.reply('⏳ Digite o *intervalo de rega* (dias):', { parse_mode: 'Markdown' });
     return ctx.wizard.next();
   },
@@ -103,76 +202,6 @@ const cadastroPlanta = new Scenes.WizardScene(
 const stage = new Scenes.Stage([cadastroPlanta]);
 bot.use(session());
 bot.use(stage.middleware());
-
-// ================= FUNÇÕES AUXILIARES =================
-
-// Função para ajustar o fuso horário para o Rio de Janeiro (America/Sao_Paulo)
-const formatarData = (data) => {
-  const timeZone = 'America/Sao_Paulo'; // Fuso horário do Rio de Janeiro
-  const zonedDate = utcToZonedTime(new Date(data), timeZone);
-  return format(zonedDate, 'dd/MM/yyyy HH:mm', { timeZone });
-};
-
-// Função para calcular a próxima rega com base no clima
-const calcularProximaRega = async (ultimaRega, intervalo, localizacao) => {
-  try {
-    const response = await axios.get(
-      `https://api.openweathermap.org/data/2.5/weather?q=${localizacao}&appid=${OPENWEATHER_API_KEY}`
-    );
-    const { rain } = response.data;
-    const intervaloAjustado = rain ? intervalo - 1 : intervalo;
-
-    const dataUltimaRega = new Date(ultimaRega);
-    dataUltimaRega.setDate(dataUltimaRega.getDate() + intervaloAjustado);
-    return dataUltimaRega;
-
-  } catch (err) {
-    const dataUltimaRega = new Date(ultimaRega);
-    dataUltimaRega.setDate(dataUltimaRega.getDate() + intervalo);
-    return dataUltimaRega;
-  }
-};
-
-// Função para enviar lembretes de rega
-const enviarLembretes = async () => {
-  const snapshot = await db.collection('plants').get();
-  snapshot.docs.forEach(async (doc) => {
-    const userData = doc.data();
-    const plantas = userData.items || [];
-    const localizacao = userData.localizacao || 'São Paulo'; // Default
-
-    plantas.forEach(async (planta) => {
-      const hoje = new Date();
-      const proximaRega = await calcularProximaRega(planta.ultimaRega, planta.intervalo, localizacao);
-
-      if (hoje >= proximaRega) {
-        await bot.telegram.sendMessage(
-          doc.id,
-          `🌧️ *Hora de regar a ${planta.apelido}!*\n` +
-          `_Previsão de chuva: ${proximaRega.getDate() === hoje.getDate() ? 'Sim' : 'Não'}_\n` +
-          'Clique em "Regar" abaixo:',
-          {
-            parse_mode: 'Markdown',
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: "✅ Regar Agora", callback_data: `regar_${planta.apelido}` }],
-                [{ text: "🔔 Lembrar mais tarde", callback_data: 'ignorar' }]
-              ]
-            }
-          }
-        );
-      }
-    });
-  });
-};
-
-// Agendar lembretes a cada hora
-cron.schedule('0 * * * *', enviarLembretes);
-
-// Endpoint para "acordar" o bot
-app.get('/acordar', (req, res) => {
-  res.send('Bot acordado!');
-});
 
 // ================= COMANDOS PRINCIPAIS =================
 
