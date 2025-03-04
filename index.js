@@ -86,7 +86,7 @@ const cadastroPlanta = new Scenes.WizardScene(
           nomeCientifico: ctx.wizard.state.nomeCientifico,
           intervalo,
           ultimaRega: new Date().toISOString(),
-          historicoRegas: [],
+          historicoRegas: [], // Garantir que historicoRegas seja um array vazio
           fotos: [] // Garantir que fotos seja um array vazio
         })
       },
@@ -253,6 +253,11 @@ bot.action(/regar_(.+)/, async (ctx) => {
 
   const plantaIndex = plantas.findIndex(p => p.apelido === apelido);
   if (plantaIndex !== -1) {
+    // Garantir que historicoRegas seja um array
+    if (!plantas[plantaIndex].historicoRegas) {
+      plantas[plantaIndex].historicoRegas = [];
+    }
+
     plantas[plantaIndex].ultimaRega = new Date().toISOString();
     plantas[plantaIndex].historicoRegas.push(new Date().toISOString());
     await db.collection('plants').doc(userId).update({ items: plantas });
