@@ -309,7 +309,19 @@ bot.action('foto', async (ctx) => {
   });
 });
 
-// Registrar Foto
+// Escolha da Planta para Foto
+bot.action(/foto_(.+)/, async (ctx) => {
+  const apelido = ctx.match[1]; // Obtém o apelido da planta a partir do callback_data
+  const userId = ctx.from.id.toString();
+
+  // Armazena a planta escolhida no estado
+  edicaoState[userId] = { plantaParaFoto: apelido };
+
+  await ctx.answerCbQuery(); // Responde ao callback_query para evitar que o bot "trave"
+  ctx.reply(`📸 Agora, envie a foto para a planta "${apelido}".`);
+});
+
+// Recebimento de Fotos
 bot.on('photo', async (ctx) => {
   const userId = ctx.from.id.toString();
   const fotoId = ctx.message.photo[0].file_id;
@@ -321,14 +333,26 @@ bot.on('photo', async (ctx) => {
 
     const plantaIndex = plantas.findIndex(p => p.apelido === apelido);
     if (plantaIndex !== -1) {
+      // Garantir que o campo "fotos" seja um array
+      if (!plantas[plantaIndex].fotos) {
+        plantas[plantaIndex].fotos = [];
+      }
+
+      // Adiciona a foto ao array de fotos da planta
       plantas[plantaIndex].fotos.push(fotoId);
+
+      // Atualiza o documento no Firestore
       await db.collection('plants').doc(userId).update({ items: plantas });
+
       ctx.reply('📸 Foto adicionada à linha do tempo!');
     } else {
       ctx.reply('❌ Planta não encontrada.');
     }
 
-    delete edicaoState[userId]; // Limpa o estado
+    // Limpa o estado após o processamento
+    delete edicaoState[userId];
+  } else {
+    ctx.reply('❌ Por favor, escolha uma planta antes de enviar a foto.');
   }
 });
 
@@ -367,6 +391,44 @@ bot.action('config', async (ctx) => {
       ]
     }
   });
+});
+
+// Configurar Notificações
+bot.action('config_notificacoes', async (ctx) => {
+  await ctx.answerCbQuery();
+  ctx.reply('🔔 *Configurar Notificações:*', {
+    parse_mode: 'Markdown',
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "⏰ Alterar Horário de Lembretes", callback_data: "alterar_horario" }],
+        [{ text: "🔙 Voltar", callback_data: "config" }]
+      ]
+    }
+  });
+});
+
+// Alterar Horário de Lembretes
+bot.action('alterar_horario', async (ctx) => {
+  await ctx.answerCbQuery();
+  ctx.reply('⏰ Digite o novo horário para os lembretes (formato HH:MM):');
+});
+
+// Receber Novo Horário
+bot.on('text', async (ctx) => {
+  const userId = ctx.from.id.toString();
+  const text = ctx.message.text;
+
+  // Verifica se o texto é um horário no formato HH:MM
+  const horarioRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+  if (horarioRegex.test(text)) {
+    // Atualiza o agendamento dos lembretes
+    const [hora, minuto] = text.split(':');
+    cron.schedule(`${minuto} ${hora} * * *`, enviarLembretes);
+
+    ctx.reply(`✅ Lembretes configurados para ${text}.`);
+  } else {
+    ctx.reply('❌ Formato inválido! Use o formato HH:MM.');
+  }
 });
 
 // Clima
