@@ -345,11 +345,11 @@ bot.action('ajuda', async (ctx) => {
   await ctx.answerCbQuery();
   ctx.reply(
     'ℹ️ *PlantBot - Ajuda*\n\n' +
-    '1. Use `/menu` para navegar\n' +
+    '1. Use /menu para navegar\n' +
     '2. Cadastre plantas para receber lembretes\n' +
     '3. Envie fotos para acompanhar o crescimento\n\n' +
-    'Desenvolvido por *Hugo Trein* 🌱\n' +
-    'Contato: @seu_usuario',
+    'Desenvolvido por **Hugo Tremmel** 🌱\n' +
+    'Insta: @h.trmml',
     { parse_mode: 'Markdown' }
   );
 });
@@ -371,4 +371,37 @@ bot.action('config', async (ctx) => {
 
 // Clima
 bot.action('clima', async (ctx) => {
- Time flies when we're having a great chat! We’ve exceeded the length limit. Please start a new chat!
+  await ctx.answerCbQuery();
+  const userId = ctx.from.id.toString();
+  const userDoc = await db.collection('plants').doc(userId).get();
+  const localizacao = userDoc.data().localizacao || 'São Paulo'; // Default
+
+  try {
+    const response = await axios.get(
+      `https://api.openweathermap.org/data/2.5/weather?q=${localizacao}&appid=${OPENWEATHER_API_KEY}&units=metric&lang=pt_br`
+    );
+    const { weather, main, rain } = response.data;
+
+    const mensagem = `🌦️ *Previsão do Tempo para ${localizacao}:*\n\n` +
+      `☁️ *Condição:* ${weather[0].description}\n` +
+      `🌡️ *Temperatura:* ${main.temp}°C\n` +
+      `💧 *Umidade:* ${main.humidity}%\n` +
+      `🌧️ *Chuva:* ${rain ? `${rain['1h']}mm` : '0mm'}\n\n` +
+      `*Dicas para rega:*\n` +
+      `- Se estiver chovendo, você pode reduzir a rega.\n` +
+      `- Em dias quentes e secos, aumente a frequência de rega.`;
+
+    ctx.reply(mensagem, { parse_mode: 'Markdown' });
+  } catch (err) {
+    ctx.reply('❌ Não foi possível obter a previsão do tempo. Tente novamente mais tarde.');
+  }
+});
+
+// ================= INICIALIZAÇÃO =================
+
+bot.launch({
+  polling: {
+    allowedUpdates: ['message', 'callback_query'],
+    dropPendingUpdates: true
+  }
+}).then(() => console.log('BotTime flies when we're having a great chat! We’ve exceeded the length limit. Please start a new chat!
