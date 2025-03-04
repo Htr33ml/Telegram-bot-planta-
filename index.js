@@ -404,4 +404,8 @@ bot.launch({
     allowedUpdates: ['message', 'callback_query'],
     dropPendingUpdates: true
   }
-}).then(() => console.log('Bot iniciado!
+}).then(() => console.log('Bot iniciado! 🚀'));
+
+app.listen(process.env.PORT || 3000, () => {
+  console.log('🟢 Servidor rodando!');
+});
