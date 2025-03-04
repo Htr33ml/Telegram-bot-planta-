@@ -407,4 +407,5 @@ bot.launch({
 }).then(() => console.log('Bot iniciado! 🚀'));
 
 app.listen(process.env.PORT || 3000, () => {
-  console.log('🟢Time flies when we're having a great chat! We’ve exceeded the length limit. Please start a new chat!
+  console.log('🟢 Servidor rodando!');
+});
