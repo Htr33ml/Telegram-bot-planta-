@@ -178,6 +178,7 @@ bot.command('menu', (ctx) => {
         [{ text: "📋 Minhas Plantas", callback_data: "listar" }],
         [{ text: "📸 Enviar Foto", callback_data: "foto" }],
         [{ text: "🌦️ Clima", callback_data: "clima" }],
+        [{ text: "📊 Evolução", callback_data: "evolucao" }],
         [{ text: "❓ Ajuda", callback_data: "ajuda" }]
       ]
     }
@@ -228,13 +229,32 @@ bot.action(/detalhes_(.+)/, async (ctx) => {
   const proximaRega = await calcularProximaRega(planta.ultimaRega, planta.intervalo, userDoc.data().localizacao);
   const status = hoje >= proximaRega ? '❌ Sua planta está com sede!' : '✅ Sua planta está saudável!';
 
+  // Formata a data no padrão brasileiro (DD/MM/AAAA HH:MM)
+  const formatarData = (data) => {
+    return data.toLocaleString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
   // Monta a mensagem do relatório
-  const mensagem = `🌿 *Relatório da ${planta.apelido}:*\n\n` +
+  let mensagem = `🌿 *Relatório da ${planta.apelido}:*\n\n` +
     `🔬 *Nome Científico:* ${planta.nomeCientifico}\n` +
-    `📅 *Última Rega:* ${new Date(planta.ultimaRega).toLocaleString()}\n` +
-    `⏳ *Próxima Rega:* ${proximaRega.toLocaleString()}\n` +
-    `📸 *Fotos:* ${planta.fotos?.length || 0}\n` + // Garantir que fotos seja um array
+    `📅 *Última Rega:* ${formatarData(new Date(planta.ultimaRega))}\n` +
+    `⏳ *Próxima Rega:* ${formatarData(proximaRega)}\n` +
+    `📸 *Fotos:* ${planta.fotos?.length || 0}\n` +
     `🟢 *Status:* ${status}`;
+
+  // Adiciona a última foto, se existir
+  if (planta.fotos?.length > 0) {
+    const ultimaFoto = planta.fotos[planta.fotos.length - 1];
+    await ctx.replyWithPhoto(ultimaFoto, { caption: mensagem, parse_mode: 'Markdown' });
+  } else {
+    ctx.reply(mensagem, { parse_mode: 'Markdown' });
+  }
 
   // Botões de ação
   const botoes = [
@@ -243,10 +263,52 @@ bot.action(/detalhes_(.+)/, async (ctx) => {
     [{ text: "🔙 Voltar", callback_data: "listar" }]
   ];
 
-  ctx.reply(mensagem, {
-    parse_mode: 'Markdown',
+  ctx.reply('Escolha uma ação:', {
     reply_markup: { inline_keyboard: botoes }
   });
+});
+
+// Evolução da Planta
+bot.action('evolucao', async (ctx) => {
+  await ctx.answerCbQuery();
+  const userId = ctx.from.id.toString();
+  const userDoc = await db.collection('plants').doc(userId).get();
+
+  if (!userDoc.exists || !userDoc.data().items) {
+    ctx.reply('Você ainda não cadastrou nenhuma planta.');
+    return;
+  }
+
+  const plantas = userDoc.data().items;
+  const buttons = plantas.map(planta => [{ text: planta.apelido, callback_data: `evolucao_${planta.apelido}` }]);
+
+  ctx.reply('📊 Escolha uma planta para ver a evolução:', {
+    reply_markup: { inline_keyboard: buttons }
+  });
+});
+
+// Mostrar Fotos da Evolução
+bot.action(/evolucao_(.+)/, async (ctx) => {
+  const apelido = ctx.match[1];
+  const userId = ctx.from.id.toString();
+  const userDoc = await db.collection('plants').doc(userId).get();
+  const plantas = userDoc.data().items;
+  const planta = plantas.find(p => p.apelido === apelido);
+
+  if (!planta) {
+    ctx.reply('❌ Planta não encontrada.');
+    return;
+  }
+
+  if (planta.fotos?.length === 0) {
+    ctx.reply(`❌ A planta "${apelido}" ainda não tem fotos registradas.`);
+    return;
+  }
+
+  // Envia todas as fotos da planta
+  for (const foto of planta.fotos) {
+    await ctx.replyWithPhoto(foto);
+  }
 });
 
 // Regar Planta
