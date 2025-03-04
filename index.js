@@ -348,8 +348,8 @@ bot.action('ajuda', async (ctx) => {
     '1. Use /menu para navegar\n' +
     '2. Cadastre plantas para receber lembretes\n' +
     '3. Envie fotos para acompanhar o crescimento\n\n' +
-    'Desenvolvido por **Hugo Trein** 🌱\n' +
-    'Contato: @seu_usuario',
+    'Desenvolvido por **Hugo Tremmel** 🌱\n' +
+    'Contato: @h.trmml',
     { parse_mode: 'Markdown' }
   );
 });
