@@ -161,6 +161,11 @@ const enviarLembretes = async () => {
 // Agendar lembretes a cada hora
 cron.schedule('0 * * * *', enviarLembretes);
 
+// Endpoint para "acordar" o bot
+app.get('/acordar', (req, res) => {
+  res.send('Bot acordado!');
+});
+
 // ================= COMANDOS PRINCIPAIS =================
 
 // Menu Principal
@@ -172,6 +177,7 @@ bot.command('menu', (ctx) => {
         [{ text: "🌿 Cadastrar Planta", callback_data: "cadastrar" }],
         [{ text: "📋 Minhas Plantas", callback_data: "listar" }],
         [{ text: "📸 Enviar Foto", callback_data: "foto" }],
+        [{ text: "🌦️ Clima", callback_data: "clima" }],
         [{ text: "⚙️ Configurações", callback_data: "config" }],
         [{ text: "❓ Ajuda", callback_data: "ajuda" }]
       ]
@@ -337,10 +343,13 @@ bot.action('cancelar_foto', async (ctx) => {
 // Ajuda
 bot.action('ajuda', async (ctx) => {
   await ctx.answerCbQuery();
-  ctx.reply('ℹ️ *Ajuda do PlantBot*\n\n' +
-    '1. Use /menu para acessar o menu principal.\n' +
-    '2. Cadastre suas plantas para receber lembretes de rega.\n' +
-    '3. Envie fotos para acompanhar o crescimento das suas plantas.',
+  ctx.reply(
+    'ℹ️ *PlantBot - Ajuda*\n\n' +
+    '1. Use /menu para navegar\n' +
+    '2. Cadastre plantas para receber lembretes\n' +
+    '3. Envie fotos para acompanhar o crescimento\n\n' +
+    'Desenvolvido por **Hugo Trein** 🌱\n' +
+    'Contato: @seu_usuario',
     { parse_mode: 'Markdown' }
   );
 });
@@ -348,11 +357,44 @@ bot.action('ajuda', async (ctx) => {
 // Configurações
 bot.action('config', async (ctx) => {
   await ctx.answerCbQuery();
-  ctx.reply('⚙️ *Configurações*\n\n' +
-    '1. Alterar localização\n' +
-    '2. Configurar notificações',
-    { parse_mode: 'Markdown' }
-  );
+  ctx.reply('⚙️ *Configurações:*', {
+    parse_mode: 'Markdown',
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "📍 Alterar Localização", callback_data: "alterar_localizacao" }],
+        [{ text: "🔔 Configurar Notificações", callback_data: "config_notificacoes" }],
+        [{ text: "🔙 Voltar", callback_data: "menu" }]
+      ]
+    }
+  });
+});
+
+// Clima
+bot.action('clima', async (ctx) => {
+  await ctx.answerCbQuery();
+  const userId = ctx.from.id.toString();
+  const userDoc = await db.collection('plants').doc(userId).get();
+  const localizacao = userDoc.data().localizacao || 'São Paulo'; // Default
+
+  try {
+    const response = await axios.get(
+      `https://api.openweathermap.org/data/2.5/weather?q=${localizacao}&appid=${OPENWEATHER_API_KEY}&units=metric&lang=pt_br`
+    );
+    const { weather, main, rain } = response.data;
+
+    const mensagem = `🌦️ *Previsão do Tempo para ${localizacao}:*\n\n` +
+      `☁️ *Condição:* ${weather[0].description}\n` +
+      `🌡️ *Temperatura:* ${main.temp}°C\n` +
+      `💧 *Umidade:* ${main.humidity}%\n` +
+      `🌧️ *Chuva:* ${rain ? `${rain['1h']}mm` : '0mm'}\n\n` +
+      `*Dicas para rega:*\n` +
+      `- Se estiver chovendo, você pode reduzir a rega.\n` +
+      `- Em dias quentes e secos, aumente a frequência de rega.`;
+
+    ctx.reply(mensagem, { parse_mode: 'Markdown' });
+  } catch (err) {
+    ctx.reply('❌ Não foi possível obter a previsão do tempo. Tente novamente mais tarde.');
+  }
 });
 
 // ================= INICIALIZAÇÃO =================
@@ -362,8 +404,4 @@ bot.launch({
     allowedUpdates: ['message', 'callback_query'],
     dropPendingUpdates: true
   }
-}).then(() => console.log('Bot iniciado! 🚀'));
-
-app.listen(process.env.PORT || 3000, () => {
-  console.log('🟢 Servidor rodando!');
-});
+}).then(() => console.log('Bot iniciado!
