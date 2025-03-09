@@ -246,7 +246,7 @@ const cadastroPlanta = new Scenes.WizardScene(
     // Cria botões com as opções
     const botoes = sugestoes.map((s, index) => [
       { 
-        text: `${s.nomeComum} (${Math.round(s.probabilidade * 100}%)`, 
+        text: `${s.nomeComum} (${Math.round(s.probabilidade * 100)}%)`, 
         callback_data: `sugestao_${index}`
       }
     ]);
