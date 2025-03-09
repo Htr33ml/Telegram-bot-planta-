@@ -43,11 +43,13 @@ const identificarPlanta = async (fotoId) => {
 
     // Enviar a imagem para a API Plant.id
     const plantIdResponse = await axios.post(
-      'https://api.plant.id/v2/identify',
+      'https://api.plant.id/v3/identify', // Versão mais nova da API
       {
-        images: [imageBuffer.toString('base64')], // Enviar a imagem como base64
-        modifiers: ['crops_fast', 'similar_images'],
-        plant_details: ['common_names', 'url'],
+        images: [imageBuffer.toString('base64')],
+        modifiers: ['similar_images'], // Removido 'crops_fast' para maior precisão
+        plant_details: ['common_names', 'url', 'name_authority'],
+        language: 'pt', // Idioma português
+        suggestions: 5 // Traz mais sugestões
       },
       {
         headers: {
@@ -58,17 +60,23 @@ const identificarPlanta = async (fotoId) => {
     );
 
     // Verificar a resposta da API
-    if (plantIdResponse.data.suggestions && plantIdResponse.data.suggestions.length > 0) {
-      const plantaIdentificada = plantIdResponse.data.suggestions[0];
-      const nomeComum = plantaIdentificada.plant_details?.common_names?.[0] || 'Desconhecido'; // Usando optional chaining
-      const nomeCientifico = plantaIdentificada.plant_name;
-      const intervaloRega = sugerirIntervaloRega(nomeCientifico); // Função para sugerir intervalo de rega
+    if (plantIdResponse.data.suggestions?.length > 0) {
+      // Filtra resultados com baixa confiança
+      const sugestoesValidas = plantIdResponse.data.suggestions.filter(
+        s => s.probability >= 0.3 // Só aceita sugestões com mais de 30% de confiança
+      );
 
-      return {
-        nomeComum,
-        nomeCientifico,
-        intervaloRega,
-      };
+      if (sugestoesValidas.length === 0) {
+        return null;
+      }
+
+      // Retorna as sugestões válidas
+      return sugestoesValidas.map(s => ({
+        nomeComum: s.plant_details?.common_names?.[0] || 'Desconhecido',
+        nomeCientifico: s.plant_name,
+        probabilidade: s.probability,
+        intervaloRega: sugerirIntervaloRega(s.plant_name)
+      }));
     } else {
       console.log('Nenhum resultado encontrado na API Plant.id.');
       return null;
@@ -220,26 +228,64 @@ const cadastroPlanta = new Scenes.WizardScene(
     const fotoId = ctx.message.photo[0].file_id;
 
     // Identificar a planta
-    const plantaIdentificada = await identificarPlanta(fotoId);
-    if (!plantaIdentificada) {
+    const sugestoes = await identificarPlanta(fotoId);
+    if (!sugestoes) {
       ctx.reply('❌ Não foi possível identificar a planta. Por favor, tente novamente.');
+      return ctx.scene.leave();
+    }
+
+    // Armazenar as sugestões no estado
+    ctx.wizard.state.sugestoes = sugestoes;
+
+    // Criar botões com as sugestões
+    const botoes = sugestoes.map((s, i) => [
+      { 
+        text: `${s.nomeComum} (${Math.round(s.probabilidade * 100)}%)`, 
+        callback_data: `escolher_${i}`
+      }
+    ]);
+
+    ctx.reply(
+      `🌿 *Planta identificada!*\n\n` +
+      sugestoes.map((s, i) => 
+        `${i+1}. *${s.nomeComum}* (${s.nomeCientifico}) - ${Math.round(s.probabilidade * 100)}%`
+      ).join('\n') +
+      `\n\nEscolha a opção correta:`,
+      {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: botoes }
+      }
+    );
+
+    return ctx.wizard.next();
+  },
+  async (ctx) => {
+    const match = ctx.callbackQuery?.data?.match(/escolher_(\d+)/);
+    if (!match) {
+      ctx.reply('❌ Seleção inválida.');
+      return ctx.scene.leave();
+    }
+
+    const idx = parseInt(match[1]);
+    const sugestao = ctx.wizard.state.sugestoes[idx];
+
+    if (!sugestao) {
+      ctx.reply('❌ Opção inválida.');
       return ctx.scene.leave();
     }
 
     // Armazenar os dados da planta no estado
     ctx.wizard.state.planta = {
-      apelido: plantaIdentificada.nomeComum,
-      nomeCientifico: plantaIdentificada.nomeCientifico,
-      intervalo: plantaIdentificada.intervaloRega,
-      fotoId: fotoId, // Armazenar o ID da foto para uso futuro
+      apelido: sugestao.nomeComum,
+      nomeCientifico: sugestao.nomeCientifico,
+      intervalo: sugestao.intervaloRega,
+      fotoId: ctx.message.photo[0].file_id,
     };
 
-    // Confirmar os dados com o usuário
     ctx.reply(
-      `🌿 *Planta identificada!*\n\n` +
-      `🔬 *Nome Científico:* ${plantaIdentificada.nomeCientifico}\n` +
-      `🌱 *Nome Comum:* ${plantaIdentificada.nomeComum}\n` +
-      `💧 *Intervalo de Rega Sugerido:* A cada ${plantaIdentificada.intervaloRega} dias\n\n` +
+      `✅ *Planta selecionada:* ${sugestao.nomeComum}\n` +
+      `🔬 *Nome Científico:* ${sugestao.nomeCientifico}\n` +
+      `💧 *Intervalo de Rega Sugerido:* A cada ${sugestao.intervaloRega} dias\n\n` +
       `Deseja confirmar o cadastro?`,
       {
         parse_mode: 'Markdown',
