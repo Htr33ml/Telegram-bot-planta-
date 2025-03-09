@@ -37,11 +37,15 @@ const identificarPlanta = async (fotoId) => {
     const fileLink = await bot.telegram.getFileLink(fotoId);
     const fotoUrl = fileLink.href;
 
-    // Enviar a foto para a API Plant.id
-    const response = await axios.post(
+    // Baixar a imagem
+    const response = await axios.get(fotoUrl, { responseType: 'arraybuffer' });
+    const imageBuffer = Buffer.from(response.data, 'binary');
+
+    // Enviar a imagem para a API Plant.id
+    const plantIdResponse = await axios.post(
       'https://api.plant.id/v2/identify',
       {
-        images: [fotoUrl],
+        images: [imageBuffer.toString('base64')], // Enviar a imagem como base64
         modifiers: ['crops_fast', 'similar_images'],
         plant_details: ['common_names', 'url'],
       },
@@ -54,8 +58,8 @@ const identificarPlanta = async (fotoId) => {
     );
 
     // Verificar a resposta da API
-    if (response.data.suggestions && response.data.suggestions.length > 0) {
-      const plantaIdentificada = response.data.suggestions[0];
+    if (plantIdResponse.data.suggestions && plantIdResponse.data.suggestions.length > 0) {
+      const plantaIdentificada = plantIdResponse.data.suggestions[0];
       const nomeComum = plantaIdentificada.plant_details.common_names[0] || 'Desconhecido';
       const nomeCientifico = plantaIdentificada.plant_name;
       const intervaloRega = sugerirIntervaloRega(nomeCientifico); // Função para sugerir intervalo de rega
@@ -66,6 +70,7 @@ const identificarPlanta = async (fotoId) => {
         intervaloRega,
       };
     } else {
+      console.log('Nenhum resultado encontrado na API Plant.id.');
       return null;
     }
   } catch (err) {
