@@ -29,22 +29,25 @@ app.use(express.json());
 let edicaoState = {};
 
 // ================= FUNÇÕES AUXILIARES =================
+
+// Função para identificar a planta usando a API Plant.id
 const identificarPlanta = async (fotoId) => {
   try {
+    // Obter o link da foto
     const fileLink = await bot.telegram.getFileLink(fotoId);
     const fotoUrl = fileLink.href;
 
+    // Baixar a imagem
     const response = await axios.get(fotoUrl, { responseType: 'arraybuffer' });
     const imageBuffer = Buffer.from(response.data, 'binary');
 
-    // Configurações melhoradas da API
+    // Enviar a imagem para a API Plant.id
     const plantIdResponse = await axios.post(
-      'https://api.plant.id/v3/identify', // Versão mais nova
+      'https://api.plant.id/v2/identify',
       {
-        images: [imageBuffer.toString('base64')],
+        images: [imageBuffer.toString('base64')], // Enviar a imagem como base64
+        modifiers: ['crops_fast', 'similar_images'],
         plant_details: ['common_names', 'url'],
-        language: 'pt', // Idioma português
-        suggestions: 3  // Traz 3 sugestões
       },
       {
         headers: {
@@ -54,32 +57,13 @@ const identificarPlanta = async (fotoId) => {
       }
     );
 
-    // Filtra resultados com baixa confiança
-    const sugestoesValidas = plantIdResponse.data.suggestions?.filter(
-      s => s.probability >= 0.3 // Só aceita acima de 30% de confiança
-    );
-
-    return sugestoesValidas?.map(s => ({
-      nomeComum: s.plant_details?.common_names?.[0] || 'Desconhecido',
-      nomeCientifico: s.plant_name,
-      probabilidade: s.probability
-    })) || null;
-
-  } catch (err) {
-    console.error('Erro na identificação:', err);
-    return null;
-  }
-};
-// Função para identificar a planta usando a API Plant.id
-
     // Verificar a resposta da API
     if (plantIdResponse.data.suggestions && plantIdResponse.data.suggestions.length > 0) {
       const plantaIdentificada = plantIdResponse.data.suggestions[0];
-      const nomeComum = plantaIdentificada.plant_details.common_names[0] || 'Desconhecido';
+      const nomeComum = plantaIdentificada.plant_details?.common_names?.[0] || 'Desconhecido'; // Usando optional chaining
       const nomeCientifico = plantaIdentificada.plant_name;
-      const intervaloRega = sugerirIntervaloRega(nomeCientifico); 
-      
-      // Função para sugerir intervalo de rega
+      const intervaloRega = sugerirIntervaloRega(nomeCientifico); // Função para sugerir intervalo de rega
+
       return {
         nomeComum,
         nomeCientifico,
@@ -97,17 +81,17 @@ const identificarPlanta = async (fotoId) => {
 
 // Função para sugerir o intervalo de rega
 const sugerirIntervaloRega = (nomeCientifico) => {
+  // Exemplo de mapeamento de intervalos de rega
   const intervalos = {
-    // Novas entradas para plantas comuns
-    'Capsicum annuum': 2,     // Pimenteira
-    'Capsicum frutescens': 2, // Pimenta malagueta
-    'Ocimum basilicum': 3,    // Manjericão
-    'Mentha spicata': 3,      // Hortelã
-    
-    // Mantenha as outras entradas...
+    'Rosa spp.': 2, // Rosas: regar a cada 2 dias
+    'Cactus spp.': 7, // Cactos: regar a cada 7 dias
+    'Orchidaceae': 5, // Orquídeas: regar a cada 5 dias
+    'Mentha spp.': 3, // Hortelã: regar a cada 3 dias
+    'Capsicum annuum': 2, // Pimenteira: regar a cada 2 dias
+    'Acacia melanoxylon': 5, // Acácia: regar a cada 5 dias
   };
 
-  return intervalos[nomeCientifico] || 3;
+  return intervalos[nomeCientifico] || 3; // Intervalo padrão: 3 dias
 };
 
 // Função para ajustar o fuso horário para o Rio de Janeiro (America/Sao_Paulo)
@@ -145,13 +129,13 @@ const enviarLembretes = async () => {
     return;
   }
 
-  snapshot.docs.forEach(async (doc) => {
+  for (const doc of snapshot.docs) { // Substituir forEach por for...of
     const userData = doc.data();
     const plantas = userData.items || [];
     console.log(`Usuário ${doc.id} tem ${plantas.length} plantas cadastradas.`);
 
     const localizacao = userData.localizacao || 'São Paulo'; // Default
-    plantas.forEach(async (planta) => {
+    for (const planta of plantas) { // Substituir forEach por for...of
       const hoje = new Date();
       const { proximaRega, estaChovendo } = await calcularProximaRega(planta.ultimaRega, planta.intervalo, localizacao);
 
@@ -186,8 +170,8 @@ const enviarLembretes = async () => {
           console.log(`Lembrete enviado para o usuário ${doc.id} sobre a planta ${planta.apelido}`);
         }
       }
-    });
-  });
+    }
+  }
 };
 
 // Agendar lembretes a cada hora
@@ -223,61 +207,15 @@ cron.schedule('0 0 * * *', () => {
 const cadastroPlanta = new Scenes.WizardScene(
   'cadastro_planta',
   (ctx) => {
-    ctx.reply('📸 Envie uma foto CLARA da planta (foco nas folhas):');
+    ctx.reply('📸 Por favor, envie uma foto da planta para identificação automática.');
     return ctx.wizard.next();
   },
   async (ctx) => {
-    if (!ctx.message?.photo) {
-      ctx.reply('❌ Preciso de uma foto válida!');
-      return ctx.scene.leave();
+    if (!ctx.message || !ctx.message.photo) {
+      ctx.reply('❌ Por favor, envie uma foto válida.');
+      return;
     }
 
-    const fotoId = ctx.message.photo[0].file_id;
-    const sugestoes = await identificarPlanta(fotoId);
-
-    if (!sugestoes) {
-      ctx.reply('⚠️ Não reconheci esta planta. Tente outra foto!');
-      return ctx.scene.leave();
-    }
-
-    // Armazena as sugestões
-    ctx.wizard.state.sugestoes = sugestoes;
-
-    // Cria botões com as opções
-    const botoes = sugestoes.map((s, index) => [
-      { 
-        text: `${s.nomeComum} (${Math.round(s.probabilidade * 100)}%)`, 
-        callback_data: `sugestao_${index}`
-      }
-    ]);
-
-    ctx.reply(
-      '🔍 Encontrei estas possibilidades:\n' +
-      sugestoes.map((s, i) => 
-        `${i+1}. *${s.nomeComum}* (${s.nomeCientifico})`
-      ).join('\n'),
-      { 
-        parse_mode: 'Markdown',
-        reply_markup: { inline_keyboard: botoes } 
-      }
-    );
-
-    return ctx.wizard.next();
-  },
-  async (ctx) => {
-    const match = ctx.callbackQuery?.data?.match(/sugestao_(\d+)/);
-    if (!match) {
-      ctx.reply('❌ Seleção inválida!');
-      return ctx.scene.leave();
-    }
-
-    const idx = parseInt(match[1]);
-    const sugestao = ctx.wizard.state.sugestoes[idx];
-
-    // Resto do código da cena permanece igual...
-    // (Confirmação e salvamento)
-  }
-);
     // Obter a foto enviada pelo usuário
     const fotoId = ctx.message.photo[0].file_id;
 
