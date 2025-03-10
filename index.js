@@ -32,33 +32,33 @@ let edicaoState = {};
 // ================= FUNÇÕES AUXILIARES =================
 const identificarPlanta = async (fotoId) => {
   try {
-    // Obter o link da foto
     const fileLink = await bot.telegram.getFileLink(fotoId);
     const fotoUrl = fileLink.href;
     console.log('Link da foto:', fotoUrl);
 
     // Baixar a imagem
     const response = await axios.get(fotoUrl, { responseType: 'arraybuffer' });
-    const imageBuffer = Buffer.from(response.data, 'binary');
-    console.log('Tamanho do buffer da imagem:', imageBuffer.length);
+    const imageBuffer = Buffer.from(response.data);
 
-    // Criar um formulário para enviar a imagem
+    // Criar form-data
     const formData = new FormData();
-    formData.append('images', imageBuffer, { filename: 'plant.jpg' }); // Adiciona a imagem ao formulário
-    formData.append('organs', 'leaf'); // Especifica que a imagem é de uma folha
-    console.log('FormData:', formData);
+    formData.append('organs', 'leaf'); // ou outro órgão relevante
+    formData.append('images', imageBuffer, { filename: 'plant.jpg', contentType: 'image/jpeg' });
 
-    // Enviar a imagem para a API do Pl@ntNet
-    const plantNetResponse = await axios.post(
+    // Enviar para a API do Pl@ntNet
+    const apiResponse = await axios.post(
       `https://my-api.plantnet.org/v2/identify/all?api-key=${PLANTNET_API_KEY}`,
       formData,
-      {
-        headers: {
-          ...formData.getHeaders(), // Adiciona os cabeçalhos do formulário
-        },
-      }
+      { headers: { ...formData.getHeaders() } }
     );
 
+    console.log('Resposta da API:', apiResponse.data);
+    return apiResponse.data;
+  } catch (error) {
+    console.error('Erro ao identificar a planta:', error.response?.data || error.message);
+    return null;
+  }
+}
     console.log('Resposta da API:', plantNetResponse.status, plantNetResponse.data);
 
     // Verificar a resposta da API
