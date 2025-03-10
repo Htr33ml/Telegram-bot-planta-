@@ -32,12 +32,13 @@ let edicaoState = {};
 // ================= FUNÇÕES AUXILIARES =================
 const identificarPlanta = async (fotoId) => {
   try {
-    const fileLink = await bot.telegram.getFileLink(fotoId);
-    const fotoUrl = fileLink.href;
-    console.log('Link da foto:', fotoUrl);
+    // Obter o arquivo em alta resolução
+    const file = await bot.telegram.getFile(fotoId);
+    const fileLink = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
+    console.log('Link da foto em alta resolução:', fileLink);
 
     // Baixar a imagem
-    const response = await axios.get(fotoUrl, { responseType: 'arraybuffer' });
+    const response = await axios.get(fileLink, { responseType: 'arraybuffer' });
     const imageBuffer = Buffer.from(response.data);
 
     // Criar form-data
@@ -56,6 +57,7 @@ const identificarPlanta = async (fotoId) => {
     return apiResponse.data;
   } catch (error) {
     console.error('Erro ao identificar a planta:', error.response?.data || error.message);
+    ctx.reply('❌ Não foi possível identificar a planta. Por favor, envie uma foto mais clara.');
     return null;
   }
 };
