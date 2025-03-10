@@ -4,6 +4,7 @@ const express = require('express');
 const cron = require('node-cron');
 const axios = require('axios');
 const { utcToZonedTime, format } = require('date-fns-tz');
+const FormData = require('form-data');
 
 // ================= 🔥 FIREBASE =================
 const serviceAccount = JSON.parse(process.env.FIREBASE_CONFIG);
@@ -41,16 +42,18 @@ const identificarPlanta = async (fotoId) => {
     const response = await axios.get(fotoUrl, { responseType: 'arraybuffer' });
     const imageBuffer = Buffer.from(response.data, 'binary');
 
+    // Criar um formulário para enviar a imagem
+    const formData = new FormData();
+    formData.append('images', imageBuffer, { filename: 'plant.jpg' }); // Adiciona a imagem ao formulário
+    formData.append('organs', 'leaf'); // Especifica que a imagem é de uma folha
+
     // Enviar a imagem para a API do Pl@ntNet
     const plantNetResponse = await axios.post(
       `https://my-api.plantnet.org/v2/identify/all?api-key=${PLANTNET_API_KEY}`,
-      {
-        images: [imageBuffer.toString('base64')],
-        organs: ['leaf'], // Especifica que a imagem é de uma folha
-      },
+      formData,
       {
         headers: {
-          'Content-Type': 'application/json',
+          ...formData.getHeaders(), // Adiciona os cabeçalhos do formulário
         },
       }
     );
