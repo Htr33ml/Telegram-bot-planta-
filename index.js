@@ -43,7 +43,7 @@ const identificarPlanta = async (fotoId) => {
 
     // Enviar a imagem para a API Plant.id
     const plantIdResponse = await axios.post(
-      'https://api.plant.id/v3/identify', // Versão mais nova da API
+      'https://api.plant.id/v2/identify', // Versão mais nova da API
       {
         images: [imageBuffer.toString('base64')],
         modifiers: ['similar_images'], // Removido 'crops_fast' para maior precisão
