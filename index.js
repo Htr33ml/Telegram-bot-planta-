@@ -58,34 +58,6 @@ const identificarPlanta = async (fotoId) => {
     console.error('Erro ao identificar a planta:', error.response?.data || error.message);
     return null;
   }
-}
-    console.log('Resposta da API:', plantNetResponse.status, plantNetResponse.data);
-
-    // Verificar a resposta da API
-    if (plantNetResponse.data.results?.length > 0) {
-      const sugestoesValidas = plantNetResponse.data.results.filter(
-        s => s.score >= 0.3 // Filtra sugestões com mais de 30% de confiança
-      );
-
-      if (sugestoesValidas.length === 0) {
-        console.log('Nenhuma sugestão válida encontrada.');
-        return null;
-      }
-
-      return sugestoesValidas.map(s => ({
-        nomeComum: s.species.commonNames[0] || 'Desconhecido',
-        nomeCientifico: s.species.scientificName,
-        probabilidade: s.score,
-        intervaloRega: sugerirIntervaloRega(s.species.scientificName)
-      }));
-    } else {
-      console.log('Nenhum resultado encontrado na API do Pl@ntNet.');
-      return null;
-    }
-  } catch (err) {
-    console.error('Erro ao identificar a planta:', err.response?.data || err.message);
-    return null;
-  }
 };
 
 // Função para sugerir o intervalo de rega
@@ -137,13 +109,13 @@ const enviarLembretes = async () => {
     return;
   }
 
-  for (const doc of snapshot.docs) { // Substituir forEach por for...of
+  for (const doc of snapshot.docs) {
     const userData = doc.data();
     const plantas = userData.items || [];
     console.log(`Usuário ${doc.id} tem ${plantas.length} plantas cadastradas.`);
 
     const localizacao = userData.localizacao || 'São Paulo'; // Default
-    for (const planta of plantas) { // Substituir forEach por for...of
+    for (const planta of plantas) {
       const hoje = new Date();
       const { proximaRega, estaChovendo } = await calcularProximaRega(planta.ultimaRega, planta.intervalo, localizacao);
 
