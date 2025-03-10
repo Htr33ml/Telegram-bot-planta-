@@ -30,22 +30,23 @@ app.use(express.json());
 let edicaoState = {};
 
 // ================= FUNÇÕES AUXILIARES =================
-
-// Função para identificar a planta usando a API do Pl@ntNet
 const identificarPlanta = async (fotoId) => {
   try {
     // Obter o link da foto
     const fileLink = await bot.telegram.getFileLink(fotoId);
     const fotoUrl = fileLink.href;
+    console.log('Link da foto:', fotoUrl);
 
     // Baixar a imagem
     const response = await axios.get(fotoUrl, { responseType: 'arraybuffer' });
     const imageBuffer = Buffer.from(response.data, 'binary');
+    console.log('Tamanho do buffer da imagem:', imageBuffer.length);
 
     // Criar um formulário para enviar a imagem
     const formData = new FormData();
     formData.append('images', imageBuffer, { filename: 'plant.jpg' }); // Adiciona a imagem ao formulário
     formData.append('organs', 'leaf'); // Especifica que a imagem é de uma folha
+    console.log('FormData:', formData);
 
     // Enviar a imagem para a API do Pl@ntNet
     const plantNetResponse = await axios.post(
@@ -57,6 +58,8 @@ const identificarPlanta = async (fotoId) => {
         },
       }
     );
+
+    console.log('Resposta da API:', plantNetResponse.status, plantNetResponse.data);
 
     // Verificar a resposta da API
     if (plantNetResponse.data.results?.length > 0) {
