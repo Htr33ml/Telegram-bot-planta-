@@ -17,8 +17,8 @@ const db = admin.firestore();
 // ================= 🌦️ OPENWEATHERMAP =================
 const OPENWEATHER_API_KEY = process.env.OPENWEATHER_API_KEY;
 
-// ================= 🌿 PLANT.ID API =================
-const PLANT_ID_API_KEY = process.env.PLANT_ID_API_KEY;
+// ================= 🌿 PL@NTNET API =================
+const PLANTNET_API_KEY = process.env.PLANTNET_API_KEY;
 
 // ================= 🤖 BOT =================
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
@@ -30,7 +30,7 @@ let edicaoState = {};
 
 // ================= FUNÇÕES AUXILIARES =================
 
-// Função para identificar a planta usando a API Plant.id
+// Função para identificar a planta usando a API do Pl@ntNet
 const identificarPlanta = async (fotoId) => {
   try {
     // Obter o link da foto
@@ -41,55 +41,49 @@ const identificarPlanta = async (fotoId) => {
     const response = await axios.get(fotoUrl, { responseType: 'arraybuffer' });
     const imageBuffer = Buffer.from(response.data, 'binary');
 
-    // Enviar a imagem para a API Plant.id
-    const plantIdResponse = await axios.post(
-      'https://api.plant.id/v2/identify', // Versão mais nova da API
+    // Enviar a imagem para a API do Pl@ntNet
+    const plantNetResponse = await axios.post(
+      `https://my-api.plantnet.org/v2/identify/all?api-key=${PLANTNET_API_KEY}`,
       {
         images: [imageBuffer.toString('base64')],
-        modifiers: ['similar_images'], // Removido 'crops_fast' para maior precisão
-        plant_details: ['common_names', 'url', 'name_authority'],
-        language: 'pt', // Idioma português
-        suggestions: 5 // Traz mais sugestões
+        organs: ['leaf'], // Especifica que a imagem é de uma folha
       },
       {
         headers: {
           'Content-Type': 'application/json',
-          'Api-Key': PLANT_ID_API_KEY,
         },
       }
     );
 
     // Verificar a resposta da API
-    if (plantIdResponse.data.suggestions?.length > 0) {
-      // Filtra resultados com baixa confiança
-      const sugestoesValidas = plantIdResponse.data.suggestions.filter(
-        s => s.probability >= 0.3 // Só aceita sugestões com mais de 30% de confiança
+    if (plantNetResponse.data.results?.length > 0) {
+      const sugestoesValidas = plantNetResponse.data.results.filter(
+        s => s.score >= 0.3 // Filtra sugestões com mais de 30% de confiança
       );
 
       if (sugestoesValidas.length === 0) {
+        console.log('Nenhuma sugestão válida encontrada.');
         return null;
       }
 
-      // Retorna as sugestões válidas
       return sugestoesValidas.map(s => ({
-        nomeComum: s.plant_details?.common_names?.[0] || 'Desconhecido',
-        nomeCientifico: s.plant_name,
-        probabilidade: s.probability,
-        intervaloRega: sugerirIntervaloRega(s.plant_name)
+        nomeComum: s.species.commonNames[0] || 'Desconhecido',
+        nomeCientifico: s.species.scientificName,
+        probabilidade: s.score,
+        intervaloRega: sugerirIntervaloRega(s.species.scientificName)
       }));
     } else {
-      console.log('Nenhum resultado encontrado na API Plant.id.');
+      console.log('Nenhum resultado encontrado na API do Pl@ntNet.');
       return null;
     }
   } catch (err) {
-    console.error('Erro ao identificar a planta:', err);
+    console.error('Erro ao identificar a planta:', err.response?.data || err.message);
     return null;
   }
 };
 
 // Função para sugerir o intervalo de rega
 const sugerirIntervaloRega = (nomeCientifico) => {
-  // Exemplo de mapeamento de intervalos de rega
   const intervalos = {
     'Rosa spp.': 2, // Rosas: regar a cada 2 dias
     'Cactus spp.': 7, // Cactos: regar a cada 7 dias
